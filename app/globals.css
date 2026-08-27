@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #0b1e3a;
+
+  /* CareerLens sea-breeze design tokens */
+  --color-navy: #0b1e3a;
+  --color-navy-light: #14315c;
+  --color-ocean: #0369a1;
+  --color-ocean-light: #0ea5e9;
+  --color-sky: #38bdf8;
+  --color-sky-light: #bae6fd;
+  --color-foam: #f0f9ff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --color-navy: var(--color-navy);
+  --color-navy-light: var(--color-navy-light);
+  --color-ocean: var(--color-ocean);
+  --color-ocean-light: var(--color-ocean-light);
+  --color-sky: var(--color-sky);
+  --color-sky-light: var(--color-sky-light);
+  --color-foam: var(--color-foam);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Sea-breeze gradient utilities */
+.bg-sea-gradient {
+  background-image: linear-gradient(
+    135deg,
+    var(--color-navy) 0%,
+    var(--color-ocean) 55%,
+    var(--color-sky) 100%
+  );
+}
+
+.bg-sea-gradient-soft {
+  background-image: linear-gradient(
+    180deg,
+    var(--color-foam) 0%,
+    #ffffff 100%
+  );
+}
+
+.text-sea-gradient {
+  background-image: linear-gradient(
+    135deg,
+    var(--color-ocean) 0%,
+    var(--color-sky) 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+/* Printable CV / cover letter (Phase 8) — A4, everything else hidden.
+   Elements to print carry data-printable; everything else is hidden via
+   the print-hide-siblings class on a shared ancestor. */
+@media print {
+  @page {
+    size: A4;
+    margin: 16mm;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  [data-printable], [data-printable] * {
+    visibility: visible;
+  }
+
+  [data-printable] {
+    position: absolute;
+    inset: 0;
+    color: #111827;
+  }
+}
