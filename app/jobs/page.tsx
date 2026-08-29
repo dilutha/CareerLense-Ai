@@ -3,6 +3,7 @@ import { Bookmark } from "lucide-react";
 import { JobSearchPage } from "@/components/jobs/JobSearchPage";
 import { requireUser } from "@/lib/auth/require-user";
 import { getSavedJobsForUser } from "@/lib/jobs/get-jobs";
+import { SOURCE_REGISTRY } from "@/lib/jobs/providers/registry";
 
 export default async function JobsPage() {
   const user = await requireUser("/jobs");
@@ -29,7 +30,7 @@ export default async function JobsPage() {
           </Link>
         </div>
 
-        <JobSearchPage savedJobIds={saved.map((s) => s.job.id)} />
+        <JobSearchPage savedJobIds={saved.map((s) => s.job.id)} sourceRegistry={SOURCE_REGISTRY} />
       </div>
     </main>
   );

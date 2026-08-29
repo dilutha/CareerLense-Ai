@@ -60,6 +60,8 @@ export interface AgentMessage {
  * ChatMessage.jobResults above).
  */
 export type ChatStreamEvent =
+  | { type: "conversation"; conversationId: string }
+  | { type: "status"; toolStatus: ToolStatusType }
   | { type: "text"; content: string }
   | { type: "jobs"; jobs: unknown[] }
   | { type: "error"; message: string };

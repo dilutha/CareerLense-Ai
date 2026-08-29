@@ -8,8 +8,9 @@ import { getOptionalUser } from "@/lib/auth/require-user";
 import { getCareerProfile } from "@/lib/career-profile/get-profile";
 import { getDefaultResume } from "@/lib/resume/get-resumes";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { discoverJobs, type ProviderStatusEntry } from "./discovery";
+import { discoverJobs, storeImportedJob, type ProviderStatusEntry } from "./discovery";
 import { getJobWithMatch } from "./get-jobs";
+import { importJobFromUrl } from "./providers/company-careers";
 import { computeJobMatch, type MatchCandidateInput, type MatchJobInput } from "./match";
 import { rankJobs } from "./rank";
 import type { JobSearchQuery } from "./providers/types";
@@ -59,7 +60,8 @@ function buildJobInput(job: Job, skills: JobSkillRow[]): MatchJobInput {
   };
 }
 
-async function matchAndCacheJobs(
+/** Exported for reuse by /api/v1/jobs/match (a single job's match, computed+cached the same way search results are). */
+export async function matchAndCacheJobs(
   userId: string,
   jobs: Job[],
   resumeId: string | null
@@ -130,6 +132,24 @@ export async function searchJobsForCurrentUser(
   const user = await getOptionalUser();
   if (!user) return { error: "Please log in again." };
 
+  return searchJobsCore(user.id, query);
+}
+
+/**
+ * Extracted for /api/v1/jobs/search — same reasoning as
+ * lib/resume/actions.ts#processResumeCore. Takes an explicit userId
+ * rather than a Supabase client override because the discovery/matching
+ * pipeline it calls (discoverJobs, matchAndCacheJobs) already resolves
+ * its own clients per-call (service-role for global job storage, RLS-
+ * scoped for job_matches) rather than accepting one — this stays
+ * consistent with that existing shape instead of threading a client
+ * through every layer for no behavioral difference (job search/matching
+ * isn't scoped to "which session" beyond the userId itself).
+ */
+export async function searchJobsCore(
+  userId: string,
+  query: Partial<JobSearchQuery>
+): Promise<SearchJobsResult | { error: string }> {
   const fullQuery: JobSearchQuery = {
     role: query.role ?? null,
     location: query.location ?? null,
@@ -141,10 +161,39 @@ export async function searchJobsForCurrentUser(
   };
 
   const { jobs, providerStatus } = await discoverJobs(fullQuery);
-  const resume = await getDefaultResume(user.id);
-  const matched = await matchAndCacheJobs(user.id, jobs, resume?.resume.id ?? null);
+  const resume = await getDefaultResume(userId);
+  const matched = await matchAndCacheJobs(userId, jobs, resume?.resume.id ?? null);
 
   return { results: rankJobs(matched), providerStatus };
+}
+
+/**
+ * Imports one job from a URL the user supplies directly — the manual
+ * fallback for LinkedIn/XpressJobs/ikman/any company page (see
+ * lib/jobs/providers/company-careers.ts#importJobFromUrl). Only succeeds
+ * when the page actually exposes schema.org JobPosting data and its
+ * robots.txt permits the fetch; never fabricates a listing when it
+ * doesn't. On success, stores + analyzes the job like any other so it
+ * gets a real jobId the user can view/match/tailor a CV for.
+ */
+export async function importJobByUrl(
+  url: string
+): Promise<ActionResult & { jobId?: string }> {
+  const user = await getOptionalUser();
+  if (!user) return { success: false, error: "Please log in again." };
+
+  const imported = await importJobFromUrl(url);
+  if (!imported.success) {
+    return { success: false, error: imported.reason };
+  }
+
+  const job = await storeImportedJob(imported.job);
+  if (!job) {
+    return { success: false, error: "Found the job, but couldn't save it. Try again." };
+  }
+
+  revalidatePath("/jobs");
+  return { success: true, jobId: job.id };
 }
 
 export async function saveJob(jobId: string): Promise<ActionResult> {

@@ -1,0 +1,549 @@
+openapi: 3.0.3
+info:
+  title: CareerLens API
+  version: 1.0.0
+  description: >
+    CareerLens AI's versioned REST API — career profile, resume
+    intelligence, job discovery, job matching, application optimization,
+    and AI-powered career analysis. Meant to sit behind WSO2 API Manager
+    (context /careerlens/1.0.0), which handles OAuth2, rate limiting,
+    versioning, and analytics for API consumers. This backend
+    independently verifies a Supabase user access token for every
+    endpoint except /health — see docs/WSO2_API.md for the full
+    "WSO2 vs Supabase authentication responsibilities" explanation.
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development (WSO2 running directly on host)
+  - url: http://host.docker.internal:3000/api/v1
+    description: Local development (WSO2 running inside Docker)
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        A genuine Supabase-issued user access token (the same JWT a
+        Supabase client gets from a real sign-in) — NOT a WSO2 OAuth2
+        token. See docs/WSO2_API.md.
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, RATE_LIMITED, INTERNAL_ERROR]
+            message:
+              type: string
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found, or not owned by the authenticated user
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    BadRequest:
+      description: Invalid request body
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      description: Public — no auth required. Safe for WSO2 connectivity testing.
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  service: { type: string, example: "CareerLens AI" }
+                  api: { type: string, example: "v1" }
+                  status: { type: string, example: "healthy" }
+                  timestamp: { type: string, format: date-time }
+
+  /profile:
+    get:
+      summary: Get the authenticated user's career profile
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      summary: Update the authenticated user's career profile and/or preferences
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                full_name: { type: string }
+                headline: { type: string }
+                bio: { type: string }
+                location: { type: string }
+                phone: { type: string }
+                linkedin_url: { type: string }
+                github_url: { type: string }
+                portfolio_url: { type: string }
+                target_role: { type: string }
+                employment_type: { type: string, enum: [internship, part_time, full_time, contract, freelance, any] }
+                remote_preference: { type: string, enum: [remote, hybrid, on_site, any] }
+                preferred_locations: { type: array, items: { type: string } }
+                preferred_industries: { type: array, items: { type: string } }
+                minimum_salary: { type: integer, nullable: true }
+                maximum_salary: { type: integer, nullable: true }
+      responses:
+        "200": { description: Updated }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /profile/skills:
+    get:
+      summary: Get the authenticated user's skills
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /profile/education:
+    get:
+      summary: Get the authenticated user's education history
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /profile/experience:
+    get:
+      summary: Get the authenticated user's work experience
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /profile/projects:
+    get:
+      summary: Get the authenticated user's projects
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /profile/preferences:
+    get:
+      summary: Get the authenticated user's career preferences
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /resumes:
+    get:
+      summary: List the authenticated user's resumes
+      description: Never includes raw extracted CV text or the private storage path.
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /resumes/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get one resume
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      summary: Delete a resume (removes the file from private storage too)
+      responses:
+        "200": { description: Deleted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /resumes/{id}/analysis:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get a resume's analysis (score, strengths, weaknesses, detected skills)
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: "Not found, or not analyzed yet — call POST /resumes/{id}/analyze first" }
+
+  /resumes/{id}/analyze:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Extract text and run Gemini analysis on an uploaded resume
+      description: Gemini-powered — suggested WSO2 rate limit 50/min (Part 20).
+      responses:
+        "200": { description: Analyzed }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /jobs:
+    get:
+      summary: Browse recently-seen active jobs (unmatched — no candidate-specific score)
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 50 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /jobs/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get one job, with the authenticated user's cached match if any
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{id}/save:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Bookmark a job
+      responses:
+        "200": { description: Saved }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    delete:
+      summary: Remove a bookmarked job
+      responses:
+        "200": { description: Removed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /jobs/search:
+    post:
+      summary: Search real job sources and rank them deterministically against the authenticated user's profile/resume
+      description: >
+        Reuses the existing discovery + deterministic matching pipeline
+        unchanged (Part 6/8). companyType/industry/international have no
+        structured field on real job data — folded into keywords rather
+        than pretending to filter precisely. Suggested WSO2 rate limit
+        100/min.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role: { type: string, nullable: true }
+                location: { type: string, nullable: true }
+                workMode: { type: string, enum: [onsite, hybrid, remote, any], nullable: true }
+                experienceLevel: { type: string, enum: [internship, graduate, entry_level, junior, mid_level, senior, any], nullable: true }
+                employmentType: { type: string }
+                international: { type: boolean }
+                industry: { type: string }
+                companyType: { type: string }
+                keywords: { type: array, items: { type: string } }
+                limit: { type: integer, maximum: 20 }
+      responses:
+        "200": { description: OK }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /jobs/match:
+    post:
+      summary: Compute (or return the cached) deterministic match score + breakdown for one job
+      description: >
+        The score is ALWAYS computed by the existing deterministic engine
+        (lib/jobs/match.ts) — the client can never submit a score (Part
+        9). profileId is not an accepted field — it's derived entirely
+        from the bearer token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [jobId]
+              properties:
+                jobId: { type: string }
+      responses:
+        "200": { description: OK }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/saved:
+    get:
+      summary: List the authenticated user's bookmarked jobs
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /applications:
+    get:
+      summary: List the authenticated user's tracked applications
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      summary: Start tracking a job (idempotent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [jobId]
+              properties:
+                jobId: { type: string }
+                status:
+                  type: string
+                  enum: [saved, interested, preparing, applied, screening, interview, final_round, offer, rejected, withdrawn, closed]
+      responses:
+        "201": { description: Created (or already existed) }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /applications/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+        description: The `applications` table row id (NOT a job id — see /applications/{id}/analyze below).
+    get:
+      summary: Get one tracked application, with its status history and linked documents
+      responses:
+        "200": { description: OK }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Update an application's status
+      description: Creates a real status-change notification as a side effect, same as the web app.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [saved, interested, preparing, applied, screening, interview, final_round, offer, rejected, withdrawn, closed]
+                note: { type: string }
+      responses:
+        "200": { description: Updated }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      summary: Stop tracking an application
+      responses:
+        "200": { description: Deleted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /applications/{id}/analyze:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+        description: >
+          A JOB id (Part 11's `{jobId}`) — deliberately distinct from the
+          bare /applications/{id} above, which uses an applications-table
+          row id. Both are named "/applications/{...}" in the original
+          spec; this API resolves that ambiguity by scoping the bare
+          GET/PATCH/DELETE to the tracking row and every tailoring
+          sub-action (analyze/tailor-cv/cover-letter/ats-analysis) to the
+          job id. See docs/WSO2_API.md.
+    post:
+      summary: Deterministic resume-vs-job comparison (skills/keywords)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resumeId: { type: string, description: "Defaults to the user's default resume if omitted." }
+      responses:
+        "200": { description: OK }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /applications/{id}/tailor-cv:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+        description: A JOB id — see /applications/{id}/analyze.
+    post:
+      summary: Generate a VerifiedFacts-grounded, job-tailored CV
+      description: Gemini-powered — suggested WSO2 rate limit 10/min. Never fabricates a qualification.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resumeId: { type: string }
+      responses:
+        "200": { description: OK }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /applications/{id}/cover-letter:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+        description: A JOB id — see /applications/{id}/analyze.
+    post:
+      summary: Generate a VerifiedFacts-grounded, job-specific cover letter
+      description: Gemini-powered — suggested WSO2 rate limit 10/min. Never fabricates experience.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resumeId: { type: string }
+      responses:
+        "200": { description: OK }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /applications/{id}/ats-analysis:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+        description: A JOB id — see /applications/{id}/analyze.
+    post:
+      summary: CareerLens ATS Alignment Score — keyword/skill match, never a specific commercial ATS's actual behavior
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resumeId: { type: string }
+      responses:
+        "200": { description: OK }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /ai/career-analysis:
+    post:
+      summary: Structured career analysis (strengths, skill gaps, recommendations) from a stated goal + skills
+      description: >
+        The main WSO2 + Gemini demonstration endpoint (Part 10).
+        Gemini-powered — suggested WSO2 rate limit 10/min. Never invents a
+        qualification not given in the request or the user's real profile.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [careerGoal]
+              properties:
+                careerGoal: { type: string }
+                skills: { type: array, items: { type: string } }
+      responses:
+        "200": { description: OK }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /interview/questions:
+    post:
+      summary: Start a mock interview session (VerifiedFacts-grounded questions, optionally job-specific)
+      description: Gemini-powered — suggested WSO2 rate limit 10/min.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jobId: { type: string }
+                mode: { type: string, description: "Accepted but not yet used to filter question categories — see docs/WSO2_API.md's known limitations." }
+      responses:
+        "201": { description: Session started }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /interview/answer-review:
+    post:
+      summary: Evaluate one interview answer (Answer Quality Score — never framed as a hiring prediction)
+      description: Gemini-powered — suggested WSO2 rate limit 10/min.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [exchangeId, answer]
+              properties:
+                exchangeId: { type: string }
+                answer: { type: string }
+      responses:
+        "200": { description: OK }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /interview/company-prep:
+    post:
+      summary: Job-specific interview prep (same mechanism as /interview/questions, jobId required)
+      description: Gemini-powered — suggested WSO2 rate limit 10/min.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [jobId]
+              properties:
+                jobId: { type: string }
+      responses:
+        "201": { description: Session started }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }

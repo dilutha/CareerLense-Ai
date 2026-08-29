@@ -14,6 +14,8 @@ import type { JobSearchProvider, JobSearchQuery, ProviderSearchResult } from "./
 const DEMO_JOBS: NormalizedJob[] = [
   {
     source: "demo",
+    sourceName: "Demo Data",
+    sourceType: "fixture",
     sourceJobId: "demo-data-analyst-intern",
     title: "Data Analyst Intern",
     company: "Ceylon Insights (Demo)",
@@ -42,6 +44,8 @@ const DEMO_JOBS: NormalizedJob[] = [
   },
   {
     source: "demo",
+    sourceName: "Demo Data",
+    sourceType: "fixture",
     sourceJobId: "demo-software-engineer-intern",
     title: "Software Engineer Intern",
     company: "Lanka Softworks (Demo)",
@@ -69,6 +73,8 @@ const DEMO_JOBS: NormalizedJob[] = [
   },
   {
     source: "demo",
+    sourceName: "Demo Data",
+    sourceType: "fixture",
     sourceJobId: "demo-cybersecurity-intern",
     title: "Cybersecurity Intern",
     company: "SecureIsland Networks (Demo)",
@@ -96,6 +102,8 @@ const DEMO_JOBS: NormalizedJob[] = [
   },
   {
     source: "demo",
+    sourceName: "Demo Data",
+    sourceType: "fixture",
     sourceJobId: "demo-ml-intern",
     title: "Machine Learning Intern",
     company: "NeuralLanka Labs (Demo)",
@@ -123,6 +131,8 @@ const DEMO_JOBS: NormalizedJob[] = [
   },
   {
     source: "demo",
+    sourceName: "Demo Data",
+    sourceType: "fixture",
     sourceJobId: "demo-junior-data-analyst",
     title: "Junior Data Analyst",
     company: "Ceylon Insights (Demo)",

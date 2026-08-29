@@ -47,8 +47,14 @@ export const EMPLOYMENT_TYPES = [
   "other",
 ] as const;
 
+export const SOURCE_TYPES = ["job_board", "aggregator_result", "official_company", "fixture"] as const;
+
 export const NormalizedJobSchema = z.object({
   source: z.string(),
+  /** Human-readable attribution, e.g. "ITPro.lk" — falls back to `source` when unset. */
+  sourceName: z.string().nullable().default(null),
+  /** job_board (ITPro) / aggregator_result (SerpApi) / official_company (schema.org career pages) / fixture (demo). */
+  sourceType: z.enum(SOURCE_TYPES).default("job_board"),
   sourceJobId: z.string().nullable(),
   title: z.string(),
   company: z.string().nullable(),

@@ -1,8 +1,14 @@
 import type { CareerProfile } from "./types";
 
+export interface ProfileCompletionItem {
+  label: string;
+  done: boolean;
+}
+
 export interface ProfileCompletion {
   percent: number;
-  missing: string[];
+  /** Every checked field, done or not — powers a ✓/○ checklist (Part 23: never a bare "45% complete" number with no context). */
+  items: ProfileCompletionItem[];
 }
 
 /**
@@ -11,57 +17,30 @@ export interface ProfileCompletion {
  * matter more than an optional link), not weighted equally.
  */
 export function calculateProfileCompletion(profile: CareerProfile): ProfileCompletion {
-  const missing: string[] = [];
+  const items: ProfileCompletionItem[] = [];
   let percent = 0;
 
-  if (profile.profile.full_name?.trim()) {
-    percent += 15;
-  } else {
-    missing.push("Add your name");
+  function check(label: string, weight: number, done: boolean) {
+    items.push({ label, done });
+    if (done) percent += weight;
   }
 
-  if (profile.education.length > 0) {
-    percent += 15;
-  } else {
-    missing.push("Add your education");
-  }
-
-  if (profile.skills.length >= 3) {
-    percent += 15;
-  } else {
-    missing.push("Add a few skills");
-  }
-
-  if (profile.projects.length > 0) {
-    percent += 15;
-  } else {
-    missing.push("Add a project");
-  }
-
-  if (profile.careerPreferences?.target_role?.trim()) {
-    percent += 20;
-  } else {
-    missing.push("Set your target role");
-  }
+  check("Your name", 15, Boolean(profile.profile.full_name?.trim()));
+  check("Education", 15, profile.education.length > 0);
+  check("Skills", 15, profile.skills.length >= 3);
+  check("Projects", 15, profile.projects.length > 0);
+  check("Target role", 20, Boolean(profile.careerPreferences?.target_role?.trim()));
 
   const hasLocation =
     Boolean(profile.profile.location?.trim()) ||
     (profile.careerPreferences?.preferred_locations.length ?? 0) > 0;
-  if (hasLocation) {
-    percent += 10;
-  } else {
-    missing.push("Add a preferred location");
-  }
+  check("Preferred location", 10, hasLocation);
 
   const hasLink =
     Boolean(profile.profile.portfolio_url?.trim()) ||
     Boolean(profile.profile.github_url?.trim()) ||
     Boolean(profile.profile.linkedin_url?.trim());
-  if (hasLink) {
-    percent += 10;
-  } else {
-    missing.push("Add a portfolio, GitHub, or LinkedIn link");
-  }
+  check("Portfolio, GitHub, or LinkedIn link", 10, hasLink);
 
-  return { percent, missing };
+  return { percent, items };
 }

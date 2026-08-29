@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { Loader2, Plus, X } from "lucide-react";
 import { updateCareerPreferences } from "@/lib/career-profile/actions";
 import type { CareerPreferences } from "@/lib/career-profile/types";
 import type { CareerPreferenceEmploymentType, RemotePreference } from "@/lib/supabase/types";
+import { createRequestGuard } from "@/lib/utils/request-guard";
 
 const inputClass =
   "w-full rounded-xl border border-navy/10 bg-foam px-3.5 py-2 text-sm text-navy placeholder:text-navy-light/50 focus:border-ocean/40 focus:outline-none";
@@ -87,6 +88,10 @@ export function CareerPreferencesForm({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // Guards against an older, slower save response landing AFTER a newer
+  // one and overwriting its correct success/error state with stale
+  // data — see lib/utils/request-guard.ts for the full explanation.
+  const requestGuard = useRef(createRequestGuard());
 
   const [targetRole, setTargetRole] = useState(preferences?.target_role ?? "");
   const [employmentType, setEmploymentType] = useState<CareerPreferenceEmploymentType | "">(
@@ -101,6 +106,7 @@ export function CareerPreferencesForm({
   );
 
   function handleSave() {
+    const token = requestGuard.current.start();
     setError(null);
     setSaved(false);
     startTransition(async () => {
@@ -111,6 +117,10 @@ export function CareerPreferencesForm({
         preferred_locations: locations,
         preferred_industries: industries,
       });
+      // A newer save has started since this one was fired — this
+      // response is stale, applying it would clobber the correct,
+      // more recent result. Silently ignore it.
+      if (!requestGuard.current.isCurrent(token)) return;
       if (!result.success) {
         setError(result.error ?? "Couldn't save. Try again.");
         return;

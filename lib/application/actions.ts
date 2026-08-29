@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getOptionalUser } from "@/lib/auth/require-user";
 import { getCareerProfile } from "@/lib/career-profile/get-profile";
 import { getResumeById } from "@/lib/resume/get-resumes";
@@ -50,6 +51,18 @@ export async function getOrCreateApplication(
   const userId = await requireUserId();
   if (!userId) return { success: false, error: "Please log in again." };
 
+  const supabase = await createServerSupabaseClient();
+  return getOrCreateApplicationCore(userId, supabase, jobId, resumeId);
+}
+
+/** Extracted for /api/v1/applications/[id]/* — same reasoning as processResumeCore. */
+export async function getOrCreateApplicationCore(
+  userId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any>,
+  jobId: string,
+  resumeId: string
+): Promise<ActionResult & { documentId?: string }> {
   const resume = await getResumeById(userId, resumeId);
   if (!resume || resume.resume.status !== "ready") {
     return {
@@ -58,7 +71,6 @@ export async function getOrCreateApplication(
     };
   }
 
-  const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("application_documents")
     .upsert(
@@ -86,7 +98,16 @@ export async function runApplicationAnalysis(documentId: string): Promise<Action
   if (!userId) return { success: false, error: "Please log in again." };
 
   const supabase = await createServerSupabaseClient();
+  return runApplicationAnalysisCore(userId, supabase, documentId);
+}
 
+/** Extracted for /api/v1/applications/[id]/analyze and /ats-analysis — see lib/resume/actions.ts#processResumeCore's comment for why this pattern exists. */
+export async function runApplicationAnalysisCore(
+  userId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any>,
+  documentId: string
+): Promise<ActionResult> {
   const { data: doc } = await supabase
     .from("application_documents")
     .select("*")
@@ -155,7 +176,16 @@ export async function generateTailoredCv(documentId: string): Promise<ActionResu
   if (!userId) return { success: false, error: "Please log in again." };
 
   const supabase = await createServerSupabaseClient();
+  return generateTailoredCvCore(userId, supabase, documentId);
+}
 
+/** Extracted for /api/v1/applications/[id]/tailor-cv — same reasoning as processResumeCore. */
+export async function generateTailoredCvCore(
+  userId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any>,
+  documentId: string
+): Promise<ActionResult> {
   const [{ data: doc }, { data: existingVersions }] = await Promise.all([
     supabase.from("application_documents").select("*").eq("id", documentId).eq("profile_id", userId).maybeSingle(),
     supabase
@@ -234,7 +264,16 @@ export async function generateCoverLetterForApplication(documentId: string): Pro
   if (!userId) return { success: false, error: "Please log in again." };
 
   const supabase = await createServerSupabaseClient();
+  return generateCoverLetterForApplicationCore(userId, supabase, documentId);
+}
 
+/** Extracted for /api/v1/applications/[id]/cover-letter — same reasoning as processResumeCore. */
+export async function generateCoverLetterForApplicationCore(
+  userId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any>,
+  documentId: string
+): Promise<ActionResult> {
   const [{ data: doc }, { data: existing }] = await Promise.all([
     supabase.from("application_documents").select("*").eq("id", documentId).eq("profile_id", userId).maybeSingle(),
     supabase
@@ -284,6 +323,62 @@ export async function generateCoverLetterForApplication(documentId: string): Pro
     );
     return { success: false, error: "Something went wrong while writing your cover letter. Try again." };
   }
+}
+
+const APPLICATION_TRACKING_STATUSES = [
+  "preparing",
+  "ready_to_apply",
+  "applied",
+  "interview",
+  "rejected",
+  "offer",
+] as const;
+
+/**
+ * Updates the real-world application-tracking status (Phase 9) — distinct
+ * from the CV-tailoring `status` (draft/ready) this row already had from
+ * Phase 8. Minimal "application tracker" surface, not a CRM: one status
+ * field + optional notes, no history/audit trail.
+ */
+export async function updateApplicationStatus(
+  documentId: string,
+  status: (typeof APPLICATION_TRACKING_STATUSES)[number],
+  notes?: string
+): Promise<ActionResult> {
+  const userId = await requireUserId();
+  if (!userId) return { success: false, error: "Please log in again." };
+
+  if (!APPLICATION_TRACKING_STATUSES.includes(status)) {
+    return { success: false, error: "That's not a valid status." };
+  }
+
+  const supabase = await createServerSupabaseClient();
+  const { data: doc } = await supabase
+    .from("application_documents")
+    .select("id, job_id")
+    .eq("id", documentId)
+    .eq("profile_id", userId)
+    .maybeSingle();
+
+  if (!doc) return { success: false, error: "Couldn't find that application." };
+
+  const update: Record<string, unknown> = { application_status: status };
+  if (notes !== undefined) update.notes = notes;
+  if (status === "applied") update.applied_at = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("application_documents")
+    .update(update)
+    .eq("id", documentId)
+    .eq("profile_id", userId);
+
+  if (error) {
+    console.error("[application] updateApplicationStatus failed:", error.message);
+    return { success: false, error: "Couldn't update the status. Try again." };
+  }
+
+  revalidateApplication((doc as { job_id: string }).job_id);
+  return { success: true };
 }
 
 export type { ApplicationAnalysisRow, ApplicationDocument, ApplicationDocumentVersion, CoverLetterRow };

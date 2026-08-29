@@ -14,3 +14,13 @@ export function getGeminiApiKey(): string {
   }
   return apiKey;
 }
+
+/**
+ * Reads SERPAPI_API_KEY. Unlike Gemini's key, this is optional — the
+ * SerpApi provider degrades to `configuration_required` (not an error)
+ * when unset, so this returns null rather than throwing.
+ */
+export function getSerpApiKey(): string | null {
+  const apiKey = process.env.SERPAPI_API_KEY;
+  return apiKey && apiKey.trim().length > 0 ? apiKey : null;
+}

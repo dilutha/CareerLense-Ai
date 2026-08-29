@@ -6,12 +6,8 @@ const PROMPTS = [
   { emoji: "💼", label: "Find me an internship", message: "Find me an internship" },
   { emoji: "📄", label: "Check my CV", message: "CV eka check karapan" },
   { emoji: "🌐", label: "Review my portfolio", message: "Can you review my portfolio?" },
+  { emoji: "🎯", label: "Plan my career path", message: "Help me plan my career path" },
   { emoji: "🎤", label: "Practice an interview", message: "Let's practice an interview" },
-  {
-    emoji: "🔎",
-    label: "Find Data Analyst jobs",
-    message: "Find me Data Analyst jobs in Colombo",
-  },
 ];
 
 export function SuggestedPrompts({

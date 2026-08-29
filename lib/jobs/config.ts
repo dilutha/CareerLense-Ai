@@ -19,3 +19,14 @@ export const MATCH_CATEGORY_THRESHOLDS = {
 
 export const DEFAULT_SEARCH_RESULT_LIMIT = 20;
 export const MAX_RANKED_RESULTS = 15;
+
+/**
+ * Chat's conversational job results deliberately show far fewer than the
+ * full /jobs search page (PROJECT_SPEC "top 4-5, not 50, not 100") — the
+ * chat picks its top CHAT_RESULT_COUNT from whatever clears
+ * CHAT_QUALITY_FLOOR, and never pads with weak matches just to fill the
+ * count (see lib/jobs/actions.ts#selectChatResults).
+ */
+export const CHAT_RESULT_COUNT = 5;
+export const CHAT_QUALITY_FLOOR = MATCH_CATEGORY_THRESHOLDS.potential; // 60
+export const CHAT_RESULT_FALLBACK_COUNT = 3;

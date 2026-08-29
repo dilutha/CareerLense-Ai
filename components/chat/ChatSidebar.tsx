@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import {
+  Bell,
   Briefcase,
   ClipboardList,
   FileText,
   Globe,
-  MessageCircle,
   Mic,
   Plus,
   Target,
@@ -16,36 +15,62 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { LogoutButton } from "@/components/auth/LogoutButton";
+import type { ConversationRow } from "@/lib/chat/types";
 import { ConversationItem } from "./ConversationItem";
 
-const CONVERSATION_HISTORY: { group: string; items: string[] }[] = [
-  { group: "Today", items: ["Data Analyst internship", "CV review"] },
-  {
-    group: "Yesterday",
-    items: ["Software internship search", "Interview practice"],
-  },
-];
-
-const TOOL_NAV: { label: string; icon: LucideIcon; href?: string; active?: boolean }[] = [
-  { label: "Chat", icon: MessageCircle, href: "/chat", active: true },
+const TOOL_NAV: { label: string; icon: LucideIcon; href: string }[] = [
   { label: "Jobs", icon: Briefcase, href: "/jobs" },
   { label: "My CV", icon: FileText, href: "/profile" },
-  { label: "Portfolio", icon: Globe },
-  { label: "Matches", icon: Target },
-  { label: "Applications", icon: ClipboardList },
-  { label: "Interview", icon: Mic },
+  { label: "Portfolio", icon: Globe, href: "/portfolio" },
+  { label: "Career", icon: Target, href: "/career" },
+  { label: "Applications", icon: ClipboardList, href: "/applications" },
+  { label: "Interview", icon: Mic, href: "/interview" },
+  { label: "Notifications", icon: Bell, href: "/notifications" },
 ];
 
+function groupByRecency(conversations: ConversationRow[]): { group: string; items: ConversationRow[] }[] {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
+  const startOfWeek = startOfToday - 7 * 24 * 60 * 60 * 1000;
+
+  const today: ConversationRow[] = [];
+  const yesterday: ConversationRow[] = [];
+  const thisWeek: ConversationRow[] = [];
+  const older: ConversationRow[] = [];
+
+  for (const c of conversations) {
+    const t = new Date(c.last_message_at).getTime();
+    if (t >= startOfToday) today.push(c);
+    else if (t >= startOfYesterday) yesterday.push(c);
+    else if (t >= startOfWeek) thisWeek.push(c);
+    else older.push(c);
+  }
+
+  return [
+    { group: "Today", items: today },
+    { group: "Yesterday", items: yesterday },
+    { group: "This week", items: thisWeek },
+    { group: "Older", items: older },
+  ].filter((g) => g.items.length > 0);
+}
+
 export function ChatSidebar({
+  conversations,
+  activeConversationId,
   onNewChat,
   onNavigate,
+  onDeleted,
+  onRenamed,
 }: {
+  conversations: ConversationRow[];
+  activeConversationId: string | null;
   onNewChat: () => void;
   onNavigate?: () => void;
+  onDeleted: (id: string) => void;
+  onRenamed: (id: string, title: string) => void;
 }) {
-  const [selectedConversation, setSelectedConversation] = useState<
-    string | null
-  >(null);
+  const groups = groupByRecency(conversations);
 
   return (
     <div className="flex h-full flex-col gap-4 bg-white p-3">
@@ -78,17 +103,24 @@ export function ChatSidebar({
         aria-label="Conversation history"
         className="flex flex-1 flex-col gap-4 overflow-y-auto"
       >
-        {CONVERSATION_HISTORY.map((group) => (
+        {groups.length === 0 && (
+          <p className="px-2.5 text-sm text-navy-light/50">Your conversations will show up here.</p>
+        )}
+
+        {groups.map((group) => (
           <div key={group.group} className="flex flex-col gap-1">
             <p className="px-2.5 text-xs font-semibold uppercase tracking-wide text-navy-light/40">
               {group.group}
             </p>
-            {group.items.map((title) => (
+            {group.items.map((c) => (
               <ConversationItem
-                key={title}
-                title={title}
-                active={selectedConversation === title}
-                onClick={() => setSelectedConversation(title)}
+                key={c.id}
+                id={c.id}
+                title={c.title}
+                active={c.id === activeConversationId}
+                onNavigate={onNavigate}
+                onDeleted={onDeleted}
+                onRenamed={onRenamed}
               />
             ))}
           </div>
@@ -98,34 +130,17 @@ export function ChatSidebar({
           <p className="px-2.5 text-xs font-semibold uppercase tracking-wide text-navy-light/40">
             Tools
           </p>
-          {TOOL_NAV.map(({ label, icon: Icon, href, active }) =>
-            href ? (
-              <Link
-                key={label}
-                href={href}
-                onClick={onNavigate}
-                aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium ${
-                  active ? "bg-foam text-navy" : "text-navy-light/80 hover:bg-foam hover:text-navy"
-                }`}
-              >
-                <Icon className="h-4 w-4" aria-hidden="true" />
-                {label}
-              </Link>
-            ) : (
-              <span
-                key={label}
-                aria-disabled="true"
-                className="flex cursor-not-allowed items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-navy-light/45"
-              >
-                <Icon className="h-4 w-4" aria-hidden="true" />
-                {label}
-                <span className="ml-auto rounded-full bg-navy/5 px-2 py-0.5 text-xs">
-                  Soon
-                </span>
-              </span>
-            )
-          )}
+          {TOOL_NAV.map(({ label, icon: Icon, href }) => (
+            <Link
+              key={label}
+              href={href}
+              onClick={onNavigate}
+              className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-navy-light/80 hover:bg-foam hover:text-navy"
+            >
+              <Icon className="h-4 w-4" aria-hidden="true" />
+              {label}
+            </Link>
+          ))}
         </div>
       </nav>
 

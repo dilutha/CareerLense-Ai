@@ -7,12 +7,30 @@ import type {
 
 export type ApplicationStatus = "draft" | "ready";
 
+/**
+ * Real-world application progress — distinct from `status` above (which is
+ * about whether a tailored CV exists yet). Defaults to "preparing" because
+ * an application_documents row only exists once the user has started
+ * tailoring; "saved" (interested but not yet preparing) lives on
+ * saved_jobs instead — see docs/DATABASE.md.
+ */
+export type ApplicationTrackingStatus =
+  | "preparing"
+  | "ready_to_apply"
+  | "applied"
+  | "interview"
+  | "rejected"
+  | "offer";
+
 export interface ApplicationDocument {
   id: string;
   profile_id: string;
   job_id: string;
   source_resume_id: string;
   status: ApplicationStatus;
+  application_status: ApplicationTrackingStatus;
+  notes: string | null;
+  applied_at: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -44,7 +44,8 @@ export const ROLE_FAMILIES: Record<string, string[]> = {
   ],
 };
 
-function findRoleFamily(title: string): string | null {
+/** Exported for reuse by lib/career/market-skills.ts (filtering jobs relevant to a target role). */
+export function findRoleFamily(title: string): string | null {
   const normalized = title.trim().toLowerCase();
   for (const [family, titles] of Object.entries(ROLE_FAMILIES)) {
     if (titles.some((t) => normalized.includes(t) || t.includes(normalized))) {

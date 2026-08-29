@@ -60,7 +60,10 @@ export function SignupForm({ next }: { next: string }) {
 
     if (data.session) {
       // Email confirmation is off — the user is signed in immediately.
-      router.push("/profile/setup");
+      // Chat-first: land them in the conversation, not a multi-step
+      // wizard — profile setup is optional now (see /chat's own prompt
+      // and CompletionCard on /profile for the progressive alternative).
+      router.push(next);
       router.refresh();
       return;
     }

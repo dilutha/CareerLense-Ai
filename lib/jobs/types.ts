@@ -11,9 +11,14 @@ export type JobEmploymentType =
 
 export type JobWorkMode = "onsite" | "hybrid" | "remote";
 
+export type JobListingStatus = "active" | "stale" | "closed" | "unknown";
+export type JobSourceType = "job_board" | "aggregator_result" | "official_company" | "fixture";
+
 export interface Job {
   id: string;
   source: string;
+  source_name: string | null;
+  source_type: JobSourceType;
   source_job_id: string | null;
   title: string;
   company_name: string | null;
@@ -33,6 +38,10 @@ export interface Job {
   raw_data: Record<string, unknown> | null;
   normalized_data: Record<string, unknown> | null;
   content_hash: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  listing_status: JobListingStatus;
+  duplicate_of: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -73,10 +82,22 @@ export interface JobMatch {
   updated_at: string;
 }
 
+export type ApplicationTrackingStatus =
+  | "saved"
+  | "preparing"
+  | "ready_to_apply"
+  | "applied"
+  | "interview"
+  | "rejected"
+  | "offer";
+
 export interface SavedJob {
   id: string;
   profile_id: string;
   job_id: string;
+  status: ApplicationTrackingStatus;
+  notes: string | null;
+  applied_at: string | null;
   created_at: string;
 }
 

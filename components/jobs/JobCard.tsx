@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Bookmark, BookmarkCheck, ExternalLink, Loader2, MessageCircleQuestion } from "lucide-react";
+import { Bookmark, BookmarkCheck, ExternalLink, Loader2, MessageCircleQuestion, Sparkles } from "lucide-react";
 import { explainJobMatch, saveJob, unsaveJob } from "@/lib/jobs/actions";
 import type { JobResultSummary } from "@/lib/jobs/summary";
 import type { MatchCategory } from "@/lib/jobs/types";
@@ -23,6 +23,13 @@ const EMPLOYMENT_LABEL: Record<string, string> = {
   freelance: "Freelance",
   volunteer: "Volunteer",
   other: "Other",
+};
+
+const FRESHNESS_STYLES: Record<string, string> = {
+  Fresh: "text-emerald-600",
+  Recent: "text-navy-light/60",
+  Older: "text-navy-light/40",
+  Unknown: "text-navy-light/40",
 };
 
 export function JobCard({
@@ -76,6 +83,12 @@ export function JobCard({
               .filter(Boolean)
               .join(" · ")}
           </p>
+          <p className="mt-1 text-xs text-navy-light/50">
+            Source: {summary.isDemo ? "Demo Data" : summary.sourceName}
+            {summary.freshness !== "Unknown" && (
+              <span className={FRESHNESS_STYLES[summary.freshness]}> · {summary.freshness}</span>
+            )}
+          </p>
         </div>
         <span
           className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-sm font-semibold ${MATCH_STYLES[summary.matchCategory as MatchCategory] ?? MATCH_STYLES.weak}`}
@@ -116,6 +129,13 @@ export function JobCard({
       <div className="flex flex-wrap items-center gap-3 border-t border-navy/10 pt-3 text-sm">
         <Link href={`/jobs/${summary.id}`} className="font-medium text-ocean hover:text-navy">
           View Job
+        </Link>
+        <Link
+          href={`/application/${summary.id}`}
+          className="flex items-center gap-1 font-medium text-navy-light/70 hover:text-navy"
+        >
+          <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+          Tailor CV
         </Link>
         <a
           href={summary.applicationUrl}

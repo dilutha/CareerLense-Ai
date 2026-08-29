@@ -9,7 +9,10 @@ export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const rawNext = searchParams.get("next");
-  const next = rawNext && rawNext.startsWith("/") ? rawNext : "/profile/setup";
+  // Chat-first: default to /chat, not the profile wizard — profile setup
+  // is optional now, reachable from /profile or a chat prompt whenever
+  // the user wants it.
+  const next = rawNext && rawNext.startsWith("/") ? rawNext : "/chat";
 
   if (code) {
     const supabase = await createServerSupabaseClient();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, Loader2, Plus, Waves, X } from "lucide-react";
@@ -12,6 +12,7 @@ import {
   updateCareerPreferences,
 } from "@/lib/career-profile/actions";
 import type { SkillProficiency } from "@/lib/supabase/types";
+import { createRequestGuard } from "@/lib/utils/request-guard";
 
 const TOTAL_STEPS = 7;
 const LOCATION_SUGGESTIONS = ["Colombo", "Kandy", "Galle", "Remote", "Anywhere in Sri Lanka"];
@@ -89,6 +90,14 @@ export function ProfileSetupWizard({ initialName }: { initialName: string }) {
   const [step, setStep] = useState(0);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Guards a slower, superseded save from applying its result (and
+  // advancing the step) after a newer one already has — see
+  // lib/utils/request-guard.ts. Root cause of a real bug: the "Back"
+  // button below wasn't disabled during `pending`, so a user could save
+  // step 2, immediately go back and change their answer, and re-save
+  // before the first save's response arrived — two in-flight requests
+  // racing over which one's `next()` call actually lands.
+  const requestGuard = useRef(createRequestGuard());
 
   const [name, setName] = useState(initialName);
   const [institution, setInstitution] = useState("");
@@ -128,8 +137,14 @@ export function ProfileSetupWizard({ initialName }: { initialName: string }) {
   }
 
   function runStep(action: () => Promise<{ success: boolean; error?: string }>) {
+    const token = requestGuard.current.start();
     startTransition(async () => {
       const result = await action();
+      // A newer step-save has started since this one was fired (e.g. the
+      // user went Back and re-submitted before this response arrived) —
+      // applying a stale result here could advance the wizard an extra
+      // step or show a stale error over a save that actually succeeded.
+      if (!requestGuard.current.isCurrent(token)) return;
       if (!result.success) {
         setError(result.error ?? "Something went wrong. Try again.");
         return;
@@ -518,7 +533,8 @@ export function ProfileSetupWizard({ initialName }: { initialName: string }) {
         <button
           type="button"
           onClick={() => setStep((s) => Math.max(s - 1, 0))}
-          className="flex w-fit items-center gap-1 text-xs font-medium text-navy-light/50 hover:text-navy"
+          disabled={pending}
+          className="flex w-fit items-center gap-1 text-xs font-medium text-navy-light/50 hover:text-navy disabled:opacity-40"
         >
           <X className="h-3 w-3" aria-hidden="true" />
           Back

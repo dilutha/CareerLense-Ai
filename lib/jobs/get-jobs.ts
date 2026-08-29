@@ -79,3 +79,24 @@ export async function isJobSaved(userId: string, jobId: string): Promise<boolean
     .maybeSingle();
   return Boolean(data);
 }
+
+/**
+ * Other sources' rows linked to this job as the same real-world vacancy
+ * (lib/jobs/cross-source-dedupe.ts) — either jobs pointing at this one via
+ * duplicate_of, or (if this job itself is the duplicate) the canonical job
+ * it points to plus that canonical's other siblings. Read-only, global
+ * table — no ownership check needed beyond the existing "jobs is readable
+ * by any authenticated user" RLS policy.
+ */
+export async function getRelatedSourceJobs(job: Job): Promise<Job[]> {
+  const supabase = await createServerSupabaseClient();
+  const canonicalId = job.duplicate_of ?? job.id;
+
+  const { data } = await supabase
+    .from("jobs")
+    .select("*")
+    .or(`id.eq.${canonicalId},duplicate_of.eq.${canonicalId}`)
+    .neq("id", job.id);
+
+  return (data ?? []) as Job[];
+}

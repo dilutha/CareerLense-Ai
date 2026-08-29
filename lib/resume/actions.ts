@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getOptionalUser } from "@/lib/auth/require-user";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { extractResumeText, ScannedDocumentError } from "./extract-text";
@@ -121,7 +122,23 @@ export async function processResume(resumeId: string): Promise<ActionResult> {
   if (!userId) return { success: false, error: "Please log in again." };
 
   const supabase = await createServerSupabaseClient();
+  return processResumeCore(userId, supabase, resumeId);
+}
 
+/**
+ * The real work, parameterized by an already-resolved user + Supabase
+ * client — extracted so /api/v1/resumes/[id]/analyze (bearer-token
+ * authenticated, no browser cookies) can run the SAME Gemini
+ * extraction/scoring logic instead of reimplementing it. `processResume`
+ * above is now a thin wrapper: resolve the cookie-based session, then
+ * delegate here — its own behavior is unchanged.
+ */
+export async function processResumeCore(
+  userId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any>,
+  resumeId: string
+): Promise<ActionResult> {
   const { data: resume } = await supabase
     .from("resumes")
     .select("id, profile_id, storage_path, file_type")
@@ -211,7 +228,16 @@ export async function deleteResume(resumeId: string): Promise<ActionResult> {
   if (!userId) return { success: false, error: "Please log in again." };
 
   const supabase = await createServerSupabaseClient();
+  return deleteResumeCore(userId, supabase, resumeId);
+}
 
+/** Extracted for /api/v1/resumes/[id] DELETE — see processResumeCore's comment for why. */
+export async function deleteResumeCore(
+  userId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any>,
+  resumeId: string
+): Promise<ActionResult> {
   const { data: resume } = await supabase
     .from("resumes")
     .select("id, storage_path")

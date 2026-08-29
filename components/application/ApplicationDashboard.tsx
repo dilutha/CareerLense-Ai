@@ -8,6 +8,7 @@ import {
   generateTailoredCv,
   getOrCreateApplication,
   runApplicationAnalysis,
+  updateApplicationStatus,
 } from "@/lib/application/actions";
 import type { ApplicationBundle, ApplicationDocumentVersion, CoverLetterRow } from "@/lib/application/types";
 import type { Job } from "@/lib/jobs/types";
@@ -70,6 +71,21 @@ export function ApplicationDashboard({
       const result = await generateTailoredCv(documentId);
       if (!result.success) {
         setError(result.error ?? "Couldn't tailor your CV.");
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  function handleStatusChange(status: string) {
+    if (!documentId) return;
+    startTransition(async () => {
+      const result = await updateApplicationStatus(
+        documentId,
+        status as "preparing" | "ready_to_apply" | "applied" | "interview" | "rejected" | "offer"
+      );
+      if (!result.success) {
+        setError(result.error ?? "Couldn't update status.");
         return;
       }
       router.refresh();
@@ -154,6 +170,26 @@ export function ApplicationDashboard({
           </div>
         ) : (
           <>
+            <div className="flex items-center gap-2 print:hidden">
+              <label htmlFor="application-status" className="text-xs font-medium text-navy-light/60">
+                Application status
+              </label>
+              <select
+                id="application-status"
+                value={bundle.document?.application_status ?? "preparing"}
+                onChange={(e) => handleStatusChange(e.target.value)}
+                disabled={pending}
+                className="rounded-lg border border-navy/10 bg-white px-2.5 py-1.5 text-sm text-navy"
+              >
+                <option value="preparing">Preparing</option>
+                <option value="ready_to_apply">Ready to apply</option>
+                <option value="applied">Applied</option>
+                <option value="interview">Interview</option>
+                <option value="rejected">Rejected</option>
+                <option value="offer">Offer</option>
+              </select>
+            </div>
+
             <div className="rounded-2xl border border-navy/10 bg-white p-6 shadow-sm">
               <p className="mb-1 text-sm font-semibold text-navy">Keyword alignment</p>
               <p className="mb-4 text-3xl font-semibold text-ocean">

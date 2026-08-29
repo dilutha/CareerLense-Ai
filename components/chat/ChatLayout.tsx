@@ -1,19 +1,82 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
+import type { ChatMessage } from "@/lib/ai/types";
+import type { ConversationRow } from "@/lib/chat/types";
 import { ChatHeader } from "./ChatHeader";
 import { ChatSidebar } from "./ChatSidebar";
 import { ChatWindow } from "./ChatWindow";
 
-export function ChatLayout() {
+export function ChatLayout({
+  conversations: initialConversations = [],
+  activeConversationId = null,
+  initialMessages = [],
+}: {
+  conversations?: ConversationRow[];
+  activeConversationId?: string | null;
+  initialMessages?: ChatMessage[];
+}) {
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [resetKey, setResetKey] = useState(0);
+  const [seenConversations, setSeenConversations] = useState(initialConversations);
+  const [conversations, setConversations] = useState(initialConversations);
   const drawerRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
+  // Server-fetched conversations change whenever Next re-renders this tree
+  // with fresh props (e.g. after router.refresh(), or a rename/delete
+  // Server Action's revalidatePath) — resync local state to match.
+  // Deliberately done during render (React's own documented pattern for
+  // "adjusting state when a prop changes"), not in a useEffect — an
+  // effect here would apply the new data one render late and trigger an
+  // extra cascading render for something render-time comparison handles
+  // in one pass.
+  if (initialConversations !== seenConversations) {
+    setSeenConversations(initialConversations);
+    setConversations(initialConversations);
+  }
+
   function handleNewChat() {
     setResetKey((key) => key + 1);
+    router.push("/chat");
+  }
+
+  function handleConversationCreated(id: string) {
+    // Optimistically add a placeholder row so the sidebar reflects the
+    // new chat immediately — revalidatePath (triggered by the rename/
+    // delete actions elsewhere) will reconcile it with the real title
+    // next time the server data refreshes.
+    setConversations((prev) => {
+      if (prev.some((c) => c.id === id)) return prev;
+      const now = new Date().toISOString();
+      return [
+        {
+          id,
+          profile_id: "",
+          title: "New chat",
+          title_is_custom: false,
+          created_at: now,
+          updated_at: now,
+          last_message_at: now,
+        },
+        ...prev,
+      ];
+    });
+    router.refresh();
+  }
+
+  function handleConversationDeleted(id: string) {
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    if (id === activeConversationId) {
+      router.push("/chat");
+    }
+  }
+
+  function handleConversationRenamed(id: string, title: string) {
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title, title_is_custom: true } : c)));
   }
 
   function openSidebar() {
@@ -40,10 +103,18 @@ export function ChatLayout() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [sidebarOpen]);
 
+  const sidebarProps = {
+    conversations,
+    activeConversationId,
+    onNewChat: handleNewChat,
+    onDeleted: handleConversationDeleted,
+    onRenamed: handleConversationRenamed,
+  };
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-white lg:flex-row">
       <aside className="hidden w-72 shrink-0 border-r border-navy/10 lg:block">
-        <ChatSidebar onNewChat={handleNewChat} />
+        <ChatSidebar {...sidebarProps} />
       </aside>
 
       <AnimatePresence>
@@ -71,7 +142,7 @@ export function ChatLayout() {
               aria-label="Chat navigation"
               className="fixed inset-y-0 left-0 z-50 w-72 max-w-[80vw] border-r border-navy/10 lg:hidden"
             >
-              <ChatSidebar onNewChat={handleNewChat} onNavigate={closeSidebar} />
+              <ChatSidebar {...sidebarProps} onNavigate={closeSidebar} />
             </motion.div>
           </>
         )}
@@ -83,7 +154,12 @@ export function ChatLayout() {
           onOpenSidebar={openSidebar}
           onNewChat={handleNewChat}
         />
-        <ChatWindow key={resetKey} />
+        <ChatWindow
+          key={`${resetKey}-${activeConversationId ?? "new"}`}
+          conversationId={activeConversationId}
+          initialMessages={initialMessages}
+          onConversationCreated={handleConversationCreated}
+        />
       </div>
     </div>
   );

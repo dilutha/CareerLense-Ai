@@ -30,6 +30,10 @@ export async function* streamCareerAgentReply(
     careerContext?: string;
     resumeContext?: string;
     jobContext?: string;
+    careerReadinessContext?: string;
+    applicationsContext?: string;
+    reminderContext?: string;
+    agentStateContext?: string;
   } = {}
 ): AsyncGenerator<string> {
   const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
@@ -37,9 +41,15 @@ export async function* streamCareerAgentReply(
     console.log(`[career-agent] intent=${detectCareerIntent(lastUserMessage.content)}`);
   }
 
-  const contextBlocks = [options.careerContext, options.resumeContext, options.jobContext].filter(
-    Boolean
-  );
+  const contextBlocks = [
+    options.careerContext,
+    options.resumeContext,
+    options.jobContext,
+    options.careerReadinessContext,
+    options.applicationsContext,
+    options.reminderContext,
+    options.agentStateContext,
+  ].filter(Boolean);
   const systemInstruction =
     contextBlocks.length > 0
       ? `${CAREERLENS_SYSTEM_PROMPT}\n\n---\n\n${contextBlocks.join("\n\n---\n\n")}`

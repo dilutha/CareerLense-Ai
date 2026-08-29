@@ -1,47 +1,22 @@
 "use client";
 
-import { Suspense } from "react";
-import dynamic from "next/dynamic";
 import Link from "next/link";
-import { motion, useReducedMotion } from "framer-motion";
-
-const HeroScene = dynamic(() => import("./HeroScene"), {
-  ssr: false,
-  loading: () => null,
-});
+import { motion } from "framer-motion";
+import { RobotHero } from "./robot/RobotHero";
 
 export function Hero({ isAuthenticated }: { isAuthenticated: boolean }) {
-  const reducedMotion = useReducedMotion();
   const chatHref = isAuthenticated ? "/chat" : "/login?next=/chat";
 
   return (
     <section className="relative overflow-hidden bg-sea-gradient-soft">
-      <div className="relative mx-auto flex w-full max-w-6xl flex-col items-center gap-8 px-6 pb-20 pt-16 text-center sm:pb-28 sm:pt-24">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.85 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
-          className="relative h-52 w-52 sm:h-72 sm:w-72"
-        >
-          {!reducedMotion ? (
-            <Suspense fallback={null}>
-              <HeroScene />
-            </Suspense>
-          ) : (
-            <div
-              aria-hidden="true"
-              className="h-full w-full rounded-full bg-sea-gradient opacity-80 blur-2xl"
-            />
-          )}
-        </motion.div>
-
+      <div className="relative mx-auto flex w-full max-w-6xl flex-col-reverse items-center gap-10 px-6 pb-20 pt-16 sm:pb-28 sm:pt-24 lg:flex-row lg:gap-12">
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}
-          className="flex flex-col items-center gap-5"
+          className="flex flex-1 flex-col items-center gap-5 text-center lg:items-start lg:text-left"
         >
-          <h1 className="max-w-2xl text-4xl font-semibold tracking-tight text-navy sm:text-5xl md:text-6xl">
+          <h1 className="max-w-xl text-4xl font-semibold tracking-tight text-navy sm:text-5xl md:text-6xl">
             Ado, job ekak hoyamu. 🌊
           </h1>
           <p className="max-w-lg text-balance text-lg text-navy-light/80">
@@ -59,6 +34,15 @@ export function Hero({ isAuthenticated }: { isAuthenticated: boolean }) {
           <p className="text-sm font-medium text-navy-light/60">
             Sinhala • Singlish • English
           </p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, scale: 0.85 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+          className="relative h-64 w-64 shrink-0 sm:h-80 sm:w-80 lg:h-96 lg:w-96"
+        >
+          <RobotHero />
         </motion.div>
       </div>
     </section>

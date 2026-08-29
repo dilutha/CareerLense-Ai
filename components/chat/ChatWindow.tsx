@@ -25,12 +25,28 @@ function toAgentMessages(messages: ChatMessage[]): AgentMessage[] {
     }));
 }
 
-export function ChatWindow() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+export function ChatWindow({
+  conversationId = null,
+  initialMessages = [],
+  onConversationCreated,
+}: {
+  /** The persisted conversation this window is continuing, or null for a fresh chat that hasn't been saved yet. */
+  conversationId?: string | null;
+  /** Pre-loaded messages when opening an existing conversation (from app/chat/[id]/page.tsx). */
+  initialMessages?: ChatMessage[];
+  /** Called once, the moment a fresh chat's first turn creates a real conversation row — lets the parent update the sidebar/URL. */
+  onConversationCreated?: (id: string) => void;
+}) {
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [chatStatus, setChatStatus] = useState<ChatStatus>("idle");
   const scrollRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Tracks the conversation this window is actually persisting to — starts
+  // at the given conversationId (or null for a fresh chat) and is filled
+  // in by the "conversation" stream event the first time a brand-new chat
+  // gets its first real message saved.
+  const activeConversationIdRef = useRef<string | null>(conversationId);
 
   useEffect(() => {
     // Cancel any in-flight generation if this window unmounts (e.g. "New
@@ -74,14 +90,52 @@ export function ChatWindow() {
 
     const assistantMessageId = createId();
     let receivedFirstChunk = false;
+    let toolStatusMessageId: string | null = null;
+
+    function clearToolStatus() {
+      if (!toolStatusMessageId) return;
+      const idToRemove = toolStatusMessageId;
+      toolStatusMessageId = null;
+      setMessages((prev) => prev.filter((m) => m.id !== idToRemove));
+    }
 
     try {
       for await (const event of streamChatReply(historyForAgent, {
         signal: abortController.signal,
+        conversationId: activeConversationIdRef.current,
       })) {
         shouldAutoScrollRef.current = true;
 
+        if (event.type === "conversation") {
+          const isNewlyCreated = activeConversationIdRef.current === null;
+          activeConversationIdRef.current = event.conversationId;
+          if (isNewlyCreated) {
+            onConversationCreated?.(event.conversationId);
+            // Deliberately the raw History API, not next/navigation's
+            // router.replace: a real App Router navigation from /chat to
+            // /chat/[id] re-renders app/chat/[id]/page.tsx as a fresh tree,
+            // which would remount this exact component mid-stream and
+            // discard the reply the user is watching arrive. This only
+            // updates the address bar (bookmarkable/shareable/reload-safe
+            // — a real page load of that URL goes through Next's router
+            // normally) without touching React at all.
+            window.history.replaceState(null, "", `/chat/${event.conversationId}`);
+          }
+          continue;
+        }
+
+        if (event.type === "status") {
+          const id = createId();
+          toolStatusMessageId = id;
+          setMessages((prev) => [
+            ...prev,
+            { id, role: "tool", content: "", createdAt: new Date(), toolStatus: event.toolStatus },
+          ]);
+          continue;
+        }
+
         if (event.type === "jobs") {
+          clearToolStatus();
           setMessages((prev) => [
             ...prev,
             {
@@ -97,6 +151,7 @@ export function ChatWindow() {
         }
 
         if (event.type === "error") {
+          clearToolStatus();
           setMessages((prev) => [
             ...prev,
             { id: createId(), role: "system", content: event.message, createdAt: new Date() },
@@ -108,6 +163,7 @@ export function ChatWindow() {
 
         if (!receivedFirstChunk) {
           receivedFirstChunk = true;
+          clearToolStatus();
           setChatStatus("streaming");
           setMessages((prev) => [
             ...prev,
@@ -142,6 +198,7 @@ export function ChatWindow() {
       setChatStatus("complete");
     } catch (error) {
       const isAbort = (error as { name?: string })?.name === "AbortError";
+      clearToolStatus();
 
       if (receivedFirstChunk) {
         setMessages((prev) =>
