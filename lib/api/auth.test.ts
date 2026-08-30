@@ -30,4 +30,30 @@ describe("extractBearerToken", () => {
   it("never returns the literal client-supplied token unmodified with surrounding whitespace", () => {
     expect(extractBearerToken(makeRequest({ Authorization: "Bearer   abc123   " }))).toBe("abc123");
   });
+
+  // WSO2 was live-verified not to forward a client-supplied Authorization
+  // header through to this backend — see docs/WSO2_INTEGRATION.md §19-20.
+  it("falls back to X-Supabase-Token when Authorization is absent (the WSO2 gateway path)", () => {
+    expect(extractBearerToken(makeRequest({ "X-Supabase-Token": "xyz789" }))).toBe("xyz789");
+  });
+
+  it("prefers a valid Authorization header over X-Supabase-Token when both are present", () => {
+    expect(
+      extractBearerToken(makeRequest({ Authorization: "Bearer abc123", "X-Supabase-Token": "xyz789" }))
+    ).toBe("abc123");
+  });
+
+  it("falls back to X-Supabase-Token when Authorization is present but malformed", () => {
+    expect(
+      extractBearerToken(makeRequest({ Authorization: "Basic dXNlcjpwYXNz", "X-Supabase-Token": "xyz789" }))
+    ).toBe("xyz789");
+  });
+
+  it("returns null for a blank X-Supabase-Token", () => {
+    expect(extractBearerToken(makeRequest({ "X-Supabase-Token": "   " }))).toBeNull();
+  });
+
+  it("trims whitespace from X-Supabase-Token", () => {
+    expect(extractBearerToken(makeRequest({ "X-Supabase-Token": "  xyz789  " }))).toBe("xyz789");
+  });
 });

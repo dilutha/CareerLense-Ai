@@ -43,3 +43,16 @@ export async function getOptionalUser(): Promise<AuthenticatedUser | null> {
     email: typeof data.claims.email === "string" ? data.claims.email : null,
   };
 }
+
+/**
+ * The raw Supabase access token JWT for the current cookie session — not
+ * for identity verification (getClaims()/requireUser() already do that);
+ * this is only for forwarding as a bearer token to a non-browser caller
+ * of /api/v1, e.g. lib/wso2/client.ts, which needs the literal token
+ * string to prove to /api/v1's OWN auth check which real user this is.
+ */
+export async function getAccessToken(): Promise<string | null> {
+  const supabase = await createServerSupabaseClient();
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+}

@@ -16,16 +16,15 @@ function baseQuery(overrides: Partial<JobSearchQuery> = {}): JobSearchQuery {
 }
 
 describe("expandSearchQueries", () => {
-  it("returns a single variant for a plain role search", () => {
+  it("returns just the role for a plain role search with no keywords/level", () => {
     const variants = expandSearchQueries(baseQuery());
     expect(variants).toEqual(["Data Science"]);
   });
 
-  it("adds one internship-specific variant when level is internship and the role doesn't already say so", () => {
+  it("adds an internship-suffixed variant when level is internship and the role doesn't already say so", () => {
     const variants = expandSearchQueries(baseQuery({ level: "internship" }));
     expect(variants).toContain("Data Science");
-    expect(variants).toContain("Data Science internship");
-    expect(variants.length).toBeLessThanOrEqual(MAX_QUERY_VARIANTS);
+    expect(variants).toContain("Data Science intern");
   });
 
   it("does not duplicate the internship variant if the role already mentions it", () => {
@@ -33,13 +32,53 @@ describe("expandSearchQueries", () => {
     expect(variants).toEqual(["Data Science Internship"]);
   });
 
+  // The real bug: the old implementation joined the role AND every
+  // keyword into ONE combined string, which over-constrains a search
+  // engine query. Confirm the role-alone variant exists as its own,
+  // separate, broader query rather than always being combined with every skill.
+  it("keeps the role alone as its own broad variant, separate from the role+skills variant", () => {
+    const variants = expandSearchQueries(baseQuery({ keywords: ["Python", "Flutter", "Spring Boot"] }));
+    expect(variants).toContain("Data Science");
+    expect(variants.some((v) => v !== "Data Science" && v.startsWith("Data Science "))).toBe(true);
+  });
+
+  it("generates a standalone query for each of the top individual skills", () => {
+    const variants = expandSearchQueries(baseQuery({ keywords: ["Python", "Flutter"] }));
+    expect(variants).toContain("Python");
+    expect(variants).toContain("Flutter");
+  });
+
+  it("suffixes individual skill variants with 'intern' too, when the search is internship-level", () => {
+    const variants = expandSearchQueries(baseQuery({ level: "internship", keywords: ["Python"] }));
+    expect(variants).toContain("Python intern");
+  });
+
+  it("caps individual skill variants at MAX_SKILL_VARIANTS worth, not one per keyword unboundedly", () => {
+    const variants = expandSearchQueries(
+      baseQuery({ keywords: ["Python", "Flutter", "Spring Boot", "SQL", "Power BI", "Machine Learning"] })
+    );
+    // role, role+intern-suffix (n/a, no level), role+top2, + at most 3 individual skills
+    expect(variants.length).toBeLessThanOrEqual(MAX_QUERY_VARIANTS);
+  });
+
   it("never exceeds MAX_QUERY_VARIANTS — controlled expansion, not an explosion", () => {
     const variants = expandSearchQueries(baseQuery({ level: "internship", keywords: ["ML", "AI", "Python"] }));
     expect(variants.length).toBeLessThanOrEqual(MAX_QUERY_VARIANTS);
   });
 
+  it("falls back to the keywords alone when there's no role at all", () => {
+    const variants = expandSearchQueries(baseQuery({ role: null, keywords: ["Python", "SQL"] }));
+    expect(variants.length).toBeGreaterThan(0);
+    expect(variants.every((v) => v.length > 0)).toBe(true);
+  });
+
   it("returns nothing for an empty query — never searches on nothing", () => {
     expect(expandSearchQueries(baseQuery({ role: null, keywords: [] }))).toEqual([]);
+  });
+
+  it("never returns duplicate variants", () => {
+    const variants = expandSearchQueries(baseQuery({ role: "Python", level: "internship", keywords: ["Python"] }));
+    expect(new Set(variants).size).toBe(variants.length);
   });
 });
 

@@ -10,13 +10,13 @@ import { SkillsSection } from "@/components/profile/SkillsSection";
 import { ResumeList } from "@/components/resume/ResumeList";
 import { requireUser } from "@/lib/auth/require-user";
 import { calculateProfileCompletion } from "@/lib/career-profile/completion";
-import { getCareerProfile } from "@/lib/career-profile/get-profile";
+import { getCareerProfileViaWso2OrDirect } from "@/lib/career-profile/get-profile-via-wso2";
 import { getResumesForUser } from "@/lib/resume/get-resumes";
 
 export default async function ProfilePage() {
   const user = await requireUser("/profile");
   const [careerProfile, resumes] = await Promise.all([
-    getCareerProfile(user.id),
+    getCareerProfileViaWso2OrDirect(user.id),
     getResumesForUser(user.id),
   ]);
 
