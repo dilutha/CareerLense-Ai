@@ -334,14 +334,50 @@ header name doesn't weaken authentication, since nothing is trusted
 without that check regardless of which header carried it.
 
 **Status: code-complete, unit-tested (11 new tests across
-`lib/api/auth.test.ts`), but genuinely NOT live-verified.** WSO2 forwards
-requests to the backend deployed on Vercel, not this local machine — the
-fix can only be exercised through the real gateway after a deployment.
-**I have not deployed this** (pushing to production is not something I
-do without being explicitly asked). Once deployed, re-running the same
-temporary diagnostic test from §19 (create a throwaway test user, sign
-in for a real token, call `getProfileViaWso2` through the real gateway)
-would confirm whether this resolves it.
+`lib/api/auth.test.ts`), deployed to production (pushed to `main` at the
+user's explicit request), but inconclusive on live re-verification — see
+§21.**
+
+## 21. The test API key expired mid-session — a separate, important finding
+
+Re-running the exact same `GET /health` probe that returned a genuine
+`200 healthy` earlier in this session (§19) — no code involved, no
+change from before, the identical request — now returns WSO2's own
+`900901 Invalid Credentials`, the same error as before any key was ever
+configured:
+
+```
+$ curl -H "<your key header>: <the same key value from earlier>" <base>/health
+{"error_message":"Invalid Credentials","code":"900901",...}
+HTTP 401
+```
+
+This means **the API key itself stopped being accepted between the two
+tests, for every request, regardless of headers** — confirmed by testing
+three header combinations (`Authorization` only, `X-Supabase-Token`
+only, both) and all three failing identically at the WSO2 gateway level,
+not the backend. This is very likely because a WSO2 Developer Portal
+**"Get Test Key"** token is deliberately short-lived (commonly ~60
+minutes) — it's meant for interactive testing inside the Portal UI, not
+for a real application's ongoing traffic.
+
+**This makes §20's fix genuinely unverifiable right now** — I can't tell
+whether `X-Supabase-Token` actually resolves the original
+identity-propagation issue, because the credential itself is now also
+invalid, which would cause a failure either way.
+
+**Recommended production fix — not just "get a new test key" (it would
+expire again the same way):** in your WSO2 Developer Portal, create a
+real **Application**, subscribe it to the CareerLens API, and generate
+that Application's own key/credentials (an API key issued to a
+subscribed Application, or OAuth2 client-credentials, depending on what
+your API's security scheme offers) — these are meant for real ongoing
+traffic and don't carry the same short interactive-testing TTL as a bare
+"Get Test Key" token. Once you have that, update `WSO2_API_KEY` in both
+`.env.local` and Vercel's production environment variables, and tell me
+— I'll immediately re-run the exact same live diagnostic (throwaway test
+user, real token, through the real gateway) to give you a conclusive
+answer on whether `X-Supabase-Token` actually fixed the original issue.
 
 **If this fix does NOT resolve it**: that would mean WSO2 is also
 stripping arbitrary custom headers, not just `Authorization` specifically

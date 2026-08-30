@@ -1,5 +1,66 @@
-import { describe, expect, it } from "vitest";
-import { normalizeSerpApiJob } from "./serpapi";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { normalizeSerpApiJob, serpApiJobProvider } from "./serpapi";
+import type { JobSearchQuery } from "./types";
+
+function baseQuery(overrides: Partial<JobSearchQuery> = {}): JobSearchQuery {
+  return {
+    role: "Data Science Intern",
+    location: "Colombo",
+    country: "Sri Lanka",
+    level: "internship",
+    workMode: null,
+    keywords: ["Python", "SQL", "Machine Learning"],
+    limit: 20,
+    ...overrides,
+  };
+}
+
+function serpApiResponse(jobCount: number): Response {
+  const jobs_results = Array.from({ length: jobCount }, (_, i) => ({
+    title: `Job ${i}`,
+    company_name: "Some Co",
+    job_id: `job-${i}`,
+  }));
+  return new Response(JSON.stringify({ jobs_results }), { status: 200 });
+}
+
+describe("serpApiJobProvider — tiered query cost control", () => {
+  beforeEach(() => {
+    vi.stubEnv("SERPAPI_API_KEY", "test-key");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("skips tier 2 (individual-skill variants) when tier 1 already returns enough results", async () => {
+    const fetchMock = vi.fn(async () => serpApiResponse(10));
+    vi.stubGlobal("fetch", fetchMock);
+
+    // Fully distinct role AND keywords from the other test in this block
+    // — serpapi.ts caches per query text, and any shared variant string
+    // (e.g. an identical individual-skill query) would silently reuse the
+    // other test's cached fetch count instead of exercising this one.
+    await serpApiJobProvider.search(
+      baseQuery({ role: "Sufficient Case Role", keywords: ["SufficientSkillA", "SufficientSkillB"] })
+    );
+
+    // expandSearchQueries generates more than 3 variants for this query;
+    // only the first 3 (tier 1) should ever be fetched here.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("runs tier 2 too when tier 1 doesn't return enough results", async () => {
+    const fetchMock = vi.fn(async () => serpApiResponse(1));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await serpApiJobProvider.search(
+      baseQuery({ role: "Insufficient Case Role", keywords: ["InsufficientSkillA", "InsufficientSkillB", "InsufficientSkillC"] })
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+});
 
 describe("normalizeSerpApiJob", () => {
   it("normalizes a real-shaped result with a LinkedIn apply option", () => {

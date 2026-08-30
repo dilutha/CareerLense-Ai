@@ -198,6 +198,21 @@ async function fetchOneQuery(
   }
 }
 
+/**
+ * How many of expandSearchQueries()'s variants get dispatched in the
+ * first, always-run tier — the broadest/highest-value ones
+ * (query-expansion.ts orders them role-first). If that tier alone
+ * already clears TIER_1_SUFFICIENT_RESULTS, the remaining (narrower,
+ * individual-skill) variants are skipped entirely — cost control per
+ * Part 7: "search 2-4 high-value variations, stop if enough high-quality
+ * results are obtained, continue only if insufficient." Both tiers are
+ * still dispatched in PARALLEL internally (Part "avoid unnecessary
+ * sequential requests") — only the decision to run tier 2 at all is
+ * sequential, gated on tier 1's actual result count.
+ */
+const TIER_1_QUERY_COUNT = 3;
+const TIER_1_SUFFICIENT_RESULTS = 8;
+
 export const serpApiJobProvider: JobSearchProvider = {
   name: "serpapi",
   label: "SerpApi Google Jobs",
@@ -220,9 +235,16 @@ export const serpApiJobProvider: JobSearchProvider = {
     }
 
     const location = resolveSearchLocation(query);
-    const outcomes = await Promise.all(
-      queries.map((q) => fetchOneQuery(q, location, query.country, apiKey))
-    );
+    const tier1 = queries.slice(0, TIER_1_QUERY_COUNT);
+    const tier2 = queries.slice(TIER_1_QUERY_COUNT);
+
+    const tier1Outcomes = await Promise.all(tier1.map((q) => fetchOneQuery(q, location, query.country, apiKey)));
+    const tier1RawCount = tier1Outcomes.reduce((sum, o) => sum + o.results.length, 0);
+
+    const outcomes =
+      tier2.length > 0 && tier1RawCount < TIER_1_SUFFICIENT_RESULTS
+        ? [...tier1Outcomes, ...(await Promise.all(tier2.map((q) => fetchOneQuery(q, location, query.country, apiKey))))]
+        : tier1Outcomes;
 
     const jobs = outcomes
       .flatMap((o) => o.results)
