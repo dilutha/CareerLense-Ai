@@ -37,9 +37,27 @@ export function RobotHero() {
   return (
     <div className="relative h-full w-full">
       {showScene ? (
-        <Suspense fallback={<RobotFallback />}>
-          <RobotScene onOpenChat={openChatInvite} />
-        </Suspense>
+        // The Canvas below is pointer-only — WebGL content isn't part of
+        // the accessibility tree, so the group's onClick/aria-label inside
+        // Robot.tsx reaches mouse users only. This wrapper is the keyboard
+        // path onto the exact same trigger (Part 20: "must be keyboard
+        // accessible... do not rely only on hover").
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Open CareerLens AI career assistant"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              openChatInvite();
+            }
+          }}
+          className="h-full w-full rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean focus-visible:ring-offset-2"
+        >
+          <Suspense fallback={<RobotFallback />}>
+            <RobotScene onOpenChat={openChatInvite} />
+          </Suspense>
+        </div>
       ) : (
         <button
           type="button"

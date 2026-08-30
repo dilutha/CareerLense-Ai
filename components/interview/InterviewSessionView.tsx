@@ -1,19 +1,11 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { completeInterviewSession, submitInterviewAnswer } from "@/lib/interview/actions";
-import { computeSessionSummary } from "@/lib/interview/session-summary";
 import type { InterviewExchangeRow, InterviewSessionRow } from "@/lib/interview/types";
-
-const CATEGORY_LABELS: Record<string, string> = {
-  general: "General",
-  technical: "Technical",
-  behavioral: "Behavioral",
-  project: "Project",
-  job_specific: "Job-specific",
-};
+import { CATEGORY_LABELS, InterviewSummary } from "./InterviewSummary";
 
 export function InterviewSessionView({
   session,
@@ -30,7 +22,6 @@ export function InterviewSessionView({
 
   const currentIndex = exchanges.findIndex((e) => e.answer_text === null);
   const current = currentIndex >= 0 ? exchanges[currentIndex] : null;
-  const summary = useMemo(() => computeSessionSummary(exchanges), [exchanges]);
   const allAnswered = currentIndex === -1;
 
   function handleSubmit() {
@@ -131,34 +122,7 @@ export function InterviewSessionView({
         </button>
       )}
 
-      {(allAnswered || session.status === "completed") && (
-        <div className="rounded-2xl border border-navy/10 bg-white p-6 shadow-sm">
-          <div className="mb-3 flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />
-            <p className="text-sm font-semibold text-navy">Preparation summary</p>
-          </div>
-          <p className="mb-4 text-xs text-navy-light/50">
-            An Answer Quality Score — relevance, structure, clarity, technical accuracy, conciseness. Not a
-            prediction of real interview or hiring success.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {Object.entries(summary)
-              .filter(([key]) => key !== "overall")
-              .map(([category, score]) => (
-                <div key={category} className="flex items-center justify-between rounded-xl bg-foam px-3.5 py-2 text-sm">
-                  <span className="text-navy-light/70">{CATEGORY_LABELS[category] ?? category}</span>
-                  <span className="font-semibold text-navy">{score}%</span>
-                </div>
-              ))}
-          </div>
-          {summary.overall !== null && (
-            <div className="mt-4 flex items-center justify-between border-t border-navy/10 pt-4">
-              <span className="text-sm font-semibold text-navy">Overall</span>
-              <span className="text-2xl font-semibold text-ocean">{summary.overall}%</span>
-            </div>
-          )}
-        </div>
-      )}
+      {(allAnswered || session.status === "completed") && <InterviewSummary exchanges={exchanges} />}
 
       <div className="flex flex-col gap-3">
         {exchanges

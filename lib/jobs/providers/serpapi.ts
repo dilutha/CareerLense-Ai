@@ -246,9 +246,18 @@ export const serpApiJobProvider: JobSearchProvider = {
         ? [...tier1Outcomes, ...(await Promise.all(tier2.map((q) => fetchOneQuery(q, location, query.country, apiKey))))]
         : tier1Outcomes;
 
-    const jobs = outcomes
-      .flatMap((o) => o.results)
-      .map(normalizeSerpApiJob)
+    const rawResults = outcomes.flatMap((o) => o.results);
+    const normalized = rawResults.map(normalizeSerpApiJob);
+    const droppedCount = normalized.filter((j) => j === null).length;
+    if (droppedCount > 0) {
+      // Count only — never the listing text itself (PART E: no job
+      // descriptions in logs). Lets a false "no vacancies" report be
+      // diagnosed as "provider returned N, M failed to normalize" instead
+      // of a silent zero.
+      console.error(`[jobs] serpapi: ${droppedCount}/${rawResults.length} raw results failed to normalize`);
+    }
+
+    const jobs = normalized
       .filter((j): j is NormalizedJob => j !== null)
       .map((j) => ({ ...j, country: query.country }))
       .slice(0, query.limit);

@@ -261,6 +261,13 @@ export async function discoverJobs(query: JobSearchQuery): Promise<DiscoveryResu
   const deduped = deduplicateJobs(validated);
 
   const stored = await upsertJobs(deduped);
+  // Funnel counts only (never titles/descriptions/URLs) — the fastest way
+  // to tell "a provider genuinely found nothing" apart from "results were
+  // found and then silently lost to validation/dedup/storage," which is
+  // otherwise indistinguishable from the chat's eventual "no vacancies".
+  console.log(
+    `[jobs] discovery funnel: providers=${allNormalized.length} validated=${validated.length} deduped=${deduped.length} stored=${stored.length}`
+  );
   await Promise.all([
     linkCrossSourceDuplicates(stored),
     ensureJobsAnalyzed(stored),

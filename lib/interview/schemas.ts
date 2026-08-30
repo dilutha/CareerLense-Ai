@@ -28,6 +28,13 @@ export const GeminiQuestionSetSchema = z.object({
 });
 export type GeminiQuestionSet = z.infer<typeof GeminiQuestionSetSchema>;
 
+/** One adaptively-generated next question (lib/interview/generate-next-question.ts) — the voice interview's one-at-a-time flow. */
+export const NextQuestionSchema = GeneratedQuestionSchema.extend({
+  /** True when this is a genuine follow-up to the candidate's most recent answer, not a fresh topic. */
+  isFollowUp: z.boolean(),
+});
+export type NextQuestion = z.infer<typeof NextQuestionSchema>;
+
 // ---------------------------------------------------------------------------
 // Answer evaluation — same "Gemini finds, code scores" pattern. Explicitly
 // does NOT include a "confidence" dimension — text alone can't measure
