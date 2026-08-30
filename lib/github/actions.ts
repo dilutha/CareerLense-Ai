@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getOptionalUser } from "@/lib/auth/require-user";
+import { ensureProfileExists } from "@/lib/career-profile/ensure-profile";
 import { getCareerProfile } from "@/lib/career-profile/get-profile";
 import { populateProfileFromSkillsAndProjects } from "@/lib/career-profile/populate-from-resume";
 import { getDefaultResume } from "@/lib/resume/get-resumes";
@@ -34,6 +35,7 @@ export async function analyzeGitHub(
 
   const contentHash = computeGitHubContentHash(fetched.profile);
   const supabase = await createServerSupabaseClient();
+  await ensureProfileExists(user.id, supabase);
 
   if (!forceRefresh) {
     const { data: existing } = await supabase

@@ -5,6 +5,7 @@ import { getGeminiClient } from "@/lib/ai/client";
 import { GEMINI_MODEL } from "@/lib/ai/config";
 import { CAREERLENS_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { getOptionalUser } from "@/lib/auth/require-user";
+import { ensureProfileExists } from "@/lib/career-profile/ensure-profile";
 import { getCareerProfile } from "@/lib/career-profile/get-profile";
 import { getDefaultResume } from "@/lib/resume/get-resumes";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -69,6 +70,11 @@ export async function matchAndCacheJobs(
   if (jobs.length === 0) return [];
 
   const supabase = await createServerSupabaseClient();
+  // Defensive — without this, a user with no profiles row (see
+  // ensure-profile.ts) would silently fail every job_matches upsert below,
+  // so `match` comes back null and every result reads as a 0% non-match —
+  // a very plausible cause of "no active matches" for a real search.
+  await ensureProfileExists(userId, supabase);
   const [profile, resume] = await Promise.all([getCareerProfile(userId), getDefaultResume(userId)]);
   const candidate = buildCandidateInput(profile, resume);
 
@@ -201,6 +207,7 @@ export async function saveJob(jobId: string): Promise<ActionResult> {
   if (!user) return { success: false, error: "Please log in again." };
 
   const supabase = await createServerSupabaseClient();
+  await ensureProfileExists(user.id, supabase);
   const { error } = await supabase
     .from("saved_jobs")
     .insert({ profile_id: user.id, job_id: jobId });

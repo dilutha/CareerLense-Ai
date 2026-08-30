@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getOptionalUser } from "@/lib/auth/require-user";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { ensureProfileExists } from "./ensure-profile";
 import type {
   CareerPreferenceEmploymentType,
   EmploymentType,
@@ -71,6 +72,7 @@ export async function updateBasicProfile(
   }
 
   const supabase = await createServerSupabaseClient();
+  await ensureProfileExists(userId, supabase);
   const { error } = await supabase
     .from("profiles")
     .update(parsed.data)
@@ -107,6 +109,7 @@ export async function addEducation(
   }
 
   const supabase = await createServerSupabaseClient();
+  await ensureProfileExists(userId, supabase);
   const { error } = await supabase
     .from("education")
     .insert({ ...parsed.data, profile_id: userId });
@@ -193,6 +196,7 @@ export async function addExperience(
   }
 
   const supabase = await createServerSupabaseClient();
+  await ensureProfileExists(userId, supabase);
   const { error } = await supabase
     .from("experience")
     .insert({ ...parsed.data, profile_id: userId });
@@ -266,6 +270,7 @@ export async function addProject(input: z.infer<typeof projectSchema>): Promise<
   }
 
   const supabase = await createServerSupabaseClient();
+  await ensureProfileExists(userId, supabase);
   const { error } = await supabase
     .from("projects")
     .insert({ ...parsed.data, profile_id: userId });
@@ -346,6 +351,7 @@ export async function addProfileSkill(
   const { skillName, category, proficiency, yearsExperience } = parsed.data;
 
   const supabase = await createServerSupabaseClient();
+  await ensureProfileExists(userId, supabase);
 
   // Case-insensitive lookup-or-create so "Python" / "python" reuse one row.
   const { data: existing } = await supabase
@@ -460,6 +466,7 @@ export async function updateCareerPreferences(
   }
 
   const supabase = await createServerSupabaseClient();
+  await ensureProfileExists(userId, supabase);
   const { error } = await supabase
     .from("career_preferences")
     .upsert({ ...parsed.data, profile_id: userId }, { onConflict: "profile_id" });

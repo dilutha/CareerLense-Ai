@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getOptionalUser } from "@/lib/auth/require-user";
+import { ensureProfileExists } from "@/lib/career-profile/ensure-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createStatusChangeNotification } from "@/lib/notifications/status-change";
 import { syncApplicationReminders } from "@/lib/notifications/sync";
@@ -53,6 +54,8 @@ export async function trackApplicationCore(
   if (!isValidApplicationStatus(initialStatus)) {
     return { success: false, error: "That's not a valid status." };
   }
+
+  await ensureProfileExists(userId, supabase);
 
   const { data: existing } = await supabase
     .from("applications")

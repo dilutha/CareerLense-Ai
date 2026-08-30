@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { buildVerifiedFacts } from "@/lib/application/verified-facts";
 import { getOptionalUser } from "@/lib/auth/require-user";
+import { ensureProfileExists } from "@/lib/career-profile/ensure-profile";
 import { getCareerProfile } from "@/lib/career-profile/get-profile";
 import { getDefaultResume } from "@/lib/resume/get-resumes";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -40,6 +41,7 @@ export async function analyzePortfolio(
 
   const contentHash = computePortfolioContentHash(url, fetched.content.visibleText);
   const supabase = await createServerSupabaseClient();
+  await ensureProfileExists(user.id, supabase);
 
   if (!forceRefresh) {
     const { data: existing } = await supabase
@@ -141,6 +143,7 @@ export async function generatePortfolioContentAction(
   }
 
   const supabase = await createServerSupabaseClient();
+  await ensureProfileExists(user.id, supabase);
   const { error } = await supabase.from("portfolio_generated_content").insert({
     profile_id: user.id,
     portfolio_analysis_id: analysisId ?? null,

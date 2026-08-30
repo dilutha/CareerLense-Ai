@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ensureProfileExists } from "@/lib/career-profile/ensure-profile";
 import { generateConversationTitle } from "./generate-title";
 import type { PersistedMessageRole } from "./types";
 
@@ -31,6 +32,12 @@ export async function getOrCreateConversation(
     if (data) return conversationId;
     return null;
   }
+
+  // Defensive — a real account was found live with no profiles row (the
+  // signup trigger should always create one; see ensure-profile.ts), which
+  // silently failed this exact insert and made every conversation vanish
+  // instead of ever being saved.
+  await ensureProfileExists(userId, supabase);
 
   const { data: inserted, error } = await supabase
     .from("conversations")

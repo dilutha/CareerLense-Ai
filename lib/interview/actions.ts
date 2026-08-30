@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildVerifiedFacts } from "@/lib/application/verified-facts";
 import { getOptionalUser } from "@/lib/auth/require-user";
+import { ensureProfileExists } from "@/lib/career-profile/ensure-profile";
 import { getCareerProfile } from "@/lib/career-profile/get-profile";
 import { getDefaultResume } from "@/lib/resume/get-resumes";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -35,6 +36,7 @@ export async function startInterviewSessionCore(
   supabase: SupabaseClient<any>,
   jobId?: string
 ): Promise<ActionResult & { sessionId?: string }> {
+  await ensureProfileExists(userId, supabase);
   const [profile, resume, jobResult] = await Promise.all([
     getCareerProfile(userId),
     getDefaultResume(userId),

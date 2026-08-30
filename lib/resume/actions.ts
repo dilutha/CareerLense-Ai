@@ -8,6 +8,7 @@ import { extractResumeText, ScannedDocumentError } from "./extract-text";
 import { parseAndEvaluateResume } from "./parse-resume";
 import { buildResumeAnalysisRecord } from "./analyze-resume";
 import { populateProfileFromResume } from "@/lib/career-profile/populate-from-resume";
+import { ensureProfileExists } from "@/lib/career-profile/ensure-profile";
 import { getResumeById } from "./get-resumes";
 import type { ResumeFileType } from "./types";
 
@@ -77,6 +78,11 @@ export async function uploadResume(
   }
 
   const supabase = await createServerSupabaseClient();
+  // Defensive — the signup trigger normally creates this, but a real
+  // account was found live with none, which made the resumes insert
+  // below fail on its FK (see ensure-profile.ts).
+  await ensureProfileExists(userId, supabase);
+
   const resumeId = crypto.randomUUID();
   const safeName = sanitizeFilename(file.name);
   const storagePath = `${userId}/${resumeId}/${safeName}`;

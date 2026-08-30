@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { buildVerifiedFacts } from "@/lib/application/verified-facts";
 import { getOptionalUser } from "@/lib/auth/require-user";
+import { ensureProfileExists } from "@/lib/career-profile/ensure-profile";
 import { getCareerProfile } from "@/lib/career-profile/get-profile";
 import { getDefaultResume } from "@/lib/resume/get-resumes";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -27,6 +28,7 @@ export async function analyzeLinkedIn(
 
   const contentHash = computeLinkedInContentHash(pastedContent);
   const supabase = await createServerSupabaseClient();
+  await ensureProfileExists(user.id, supabase);
 
   const { data: existing } = await supabase
     .from("linkedin_analyses")
@@ -116,6 +118,7 @@ export async function generateLinkedInContentAction(
   }
 
   const supabase = await createServerSupabaseClient();
+  await ensureProfileExists(user.id, supabase);
   const { error } = await supabase.from("linkedin_generated_content").insert({
     profile_id: user.id,
     linkedin_analysis_id: analysisId ?? null,
