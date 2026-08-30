@@ -5,8 +5,18 @@ import { GEMINI_MODEL } from "@/lib/ai/config";
 import { StateUpdateSchema, type CareerAgentState, type StateUpdate } from "./schema";
 import { STATE_UPDATE_SYSTEM_PROMPT } from "./prompts";
 
+// Real bug found live: `\binternship\b` (singular only, with a trailing
+// word boundary) never matches "internships" or a bare "Intern" — the `\b`
+// after "internship" fails whenever the word continues (e.g. the "s" in
+// "internships"). That's the confirmed cause of the chat responding
+// conversationally instead of searching for the exact phrases "Software
+// Engineer Intern", "Find Python internships", etc. — 5 of the 9 phrases
+// in the acceptance test failed this gate before the fix below. Same
+// unbounded-stem issue existed for "vacan"/"opportunit" (bare stems with
+// a trailing \b can't match their own inflected forms either) — fixed the
+// same way, with \w* instead of assuming a specific suffix.
 const JOB_TALK_KEYWORDS =
-  /\b(job|jobs|internship|vacan|hire|hiring|position|role|opportunit|hoyanna|hoyala|vacancy|company|companies|salary|remote|hybrid|onsite|international|CV|resume|apply|interview)\b/i;
+  /\b(job|jobs|intern(?:ship)?s?|vacan\w*|hire|hiring|position|role|opportunit\w*|hoyanna|hoyala|company|companies|salary|salaries|remote|hybrid|onsite|international|CV|resume|apply|interview)\b/i;
 
 /**
  * Cheap gate deciding whether this message is worth an extraction call at
