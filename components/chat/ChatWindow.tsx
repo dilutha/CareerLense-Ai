@@ -17,7 +17,14 @@ function createId() {
 
 function toAgentMessages(messages: ChatMessage[]): AgentMessage[] {
   return messages
-    .filter((message) => message.role === "user" || message.role === "assistant")
+    // Job-card turns are assistant messages with content:"" (the cards
+    // render from jobResults, not text) — excluded here so they never
+    // reach the server's history array at all, matching the server-side
+    // fix in app/api/chat/route.ts#parseMessages.
+    .filter(
+      (message) =>
+        (message.role === "user" || message.role === "assistant") && message.content.trim().length > 0
+    )
     .map((message) => ({
       id: message.id,
       role: message.role as ChatRole,

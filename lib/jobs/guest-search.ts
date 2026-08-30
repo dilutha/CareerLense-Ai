@@ -46,6 +46,45 @@ function buildGuestJobInput(job: Job, skills: JobSkillRow[]): MatchJobInput {
   };
 }
 
+function matchOneJobForGuest(job: Job, skills: JobSkillRow[], candidateInput: MatchCandidateInput): JobWithMatch {
+  const result = computeJobMatch(candidateInput, buildGuestJobInput(job, skills));
+  const now = new Date().toISOString();
+  const match: JobMatch = {
+    id: `guest-${job.id}`,
+    profile_id: "guest",
+    job_id: job.id,
+    resume_id: null,
+    match_score: result.overall,
+    skills_score: result.skillsScore,
+    role_score: result.roleScore,
+    experience_score: result.experienceScore,
+    education_score: result.educationScore,
+    location_score: result.locationScore,
+    keyword_score: result.keywordScore,
+    matched_skills: result.matchedSkills,
+    missing_required_skills: result.missingRequiredSkills,
+    missing_preferred_skills: result.missingPreferredSkills,
+    matched_keywords: result.matchedKeywords,
+    missing_keywords: result.missingKeywords,
+    explanation: result.explanation,
+    created_at: now,
+    updated_at: now,
+  };
+  return { job, skills, match };
+}
+
+/**
+ * Matches a single already-stored job (e.g. one just imported from a
+ * pasted URL — see analyze-url.ts) against a guest's ephemeral candidate,
+ * without touching job_matches. Fetches that one job's skills the same
+ * safe way searchJobsForGuest does.
+ */
+export async function matchJobForGuest(job: Job, candidate: GuestCandidate): Promise<JobWithMatch> {
+  const supabase = getSupabaseAdminClient();
+  const { data: skills } = await supabase.from("job_skills").select("*").eq("job_id", job.id);
+  return matchOneJobForGuest(job, (skills ?? []) as JobSkillRow[], buildGuestCandidateInput(candidate));
+}
+
 export interface GuestSearchResult {
   results: JobWithMatch[];
   providerStatus: ProviderStatusEntry[];
@@ -75,7 +114,6 @@ export async function searchJobsForGuest(
 
   const { jobs, providerStatus } = await discoverJobs(fullQuery);
   const candidateInput = buildGuestCandidateInput(candidate);
-  const now = new Date().toISOString();
 
   // job_skills is shared catalog data (no owner column, no per-user
   // scoping) gated to `authenticated` purely to deter anonymous scraping —
@@ -95,32 +133,7 @@ export async function searchJobsForGuest(
     skillsByJob.set(row.job_id, list);
   }
 
-  const results: JobWithMatch[] = jobs.map((job) => {
-    const jobSkills = skillsByJob.get(job.id) ?? [];
-    const result = computeJobMatch(candidateInput, buildGuestJobInput(job, jobSkills));
-    const match: JobMatch = {
-      id: `guest-${job.id}`,
-      profile_id: "guest",
-      job_id: job.id,
-      resume_id: null,
-      match_score: result.overall,
-      skills_score: result.skillsScore,
-      role_score: result.roleScore,
-      experience_score: result.experienceScore,
-      education_score: result.educationScore,
-      location_score: result.locationScore,
-      keyword_score: result.keywordScore,
-      matched_skills: result.matchedSkills,
-      missing_required_skills: result.missingRequiredSkills,
-      missing_preferred_skills: result.missingPreferredSkills,
-      matched_keywords: result.matchedKeywords,
-      missing_keywords: result.missingKeywords,
-      explanation: result.explanation,
-      created_at: now,
-      updated_at: now,
-    };
-    return { job, skills: jobSkills, match };
-  });
+  const results = jobs.map((job) => matchOneJobForGuest(job, skillsByJob.get(job.id) ?? [], candidateInput));
 
   return { results: rankJobs(results), providerStatus };
 }

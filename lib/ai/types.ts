@@ -7,6 +7,7 @@ export type ToolStatusType =
   | "analyzing_resume"
   | "analyzing_portfolio"
   | "matching_job"
+  | "analyzing_job_url"
   | "improving_resume"
   | "generating_cover_letter"
   | "preparing_interview";

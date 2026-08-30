@@ -21,6 +21,7 @@ const TOOL_STATUS_META: Record<
   analyzing_resume: { icon: FileText, label: "Checking your CV..." },
   analyzing_portfolio: { icon: Globe, label: "Looking at your portfolio..." },
   matching_job: { icon: Target, label: "Comparing your profile..." },
+  analyzing_job_url: { icon: Globe, label: "Analyzing this vacancy..." },
   improving_resume: { icon: PenLine, label: "Refining your CV..." },
   generating_cover_letter: {
     icon: Mail,

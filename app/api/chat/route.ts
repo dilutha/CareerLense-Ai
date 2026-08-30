@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { streamCareerAgentReply } from "@/lib/ai/career-agent";
-import { MAX_HISTORY_MESSAGES, MAX_MESSAGE_LENGTH } from "@/lib/ai/config";
-import type { AgentMessage, ChatRole, ChatStreamEvent } from "@/lib/ai/types";
+import { parseConversationId, parseMessages } from "@/lib/ai/parse-chat-request";
+import type { ChatStreamEvent } from "@/lib/ai/types";
 import { getCareerProfile } from "@/lib/career-profile/get-profile";
 import { buildCareerContext } from "@/lib/career-profile/profile-context";
 import { buildCareerReadinessContext } from "@/lib/career/chat-context";
@@ -15,10 +15,12 @@ import { setFollowUpDate, setInterviewAt } from "@/lib/applications/actions";
 import { extractReminderIntent, looksLikeReminderMessage } from "@/lib/notifications/intent";
 import { matchApplicationByHint } from "@/lib/notifications/match-application";
 import { parseReminderDateTime } from "@/lib/notifications/parse-datetime";
-import { searchJobsForCurrentUser } from "@/lib/jobs/actions";
-import { searchJobsForGuest, type GuestCandidate } from "@/lib/jobs/guest-search";
+import { matchAndCacheJobs, searchJobsForCurrentUser } from "@/lib/jobs/actions";
+import { analyzeJobUrl, extractFirstUrl } from "@/lib/jobs/analyze-url";
+import { matchJobForGuest, searchJobsForGuest, type GuestCandidate } from "@/lib/jobs/guest-search";
 import { selectChatResults } from "@/lib/jobs/rank";
 import { buildJobResultsContext, toJobResultSummary, type JobResultSummary } from "@/lib/jobs/summary";
+import type { Job, JobWithMatch } from "@/lib/jobs/types";
 import { buildResumeContext } from "@/lib/resume/get-resume-context";
 import { getOrCreateConversation, saveMessage } from "@/lib/chat/persist";
 import { getAgentState, saveAgentState } from "@/lib/agent-state/persist";
@@ -33,8 +35,6 @@ import { buildAgentStateContext, buildSelectedJobContext } from "@/lib/agent-sta
 import { getJobsByIds } from "@/lib/agent-state/get-jobs-by-ids";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
-const VALID_ROLES: ChatRole[] = ["user", "assistant", "system"];
-
 function isAbortError(error: unknown): boolean {
   return (error as { name?: string } | null)?.name === "AbortError";
 }
@@ -42,57 +42,6 @@ function isAbortError(error: unknown): boolean {
 /** Concise, single-line error description safe for server logs. */
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function parseMessages(body: unknown): AgentMessage[] | null {
-  if (
-    typeof body !== "object" ||
-    body === null ||
-    !("messages" in body) ||
-    !Array.isArray((body as { messages: unknown }).messages)
-  ) {
-    return null;
-  }
-
-  const rawMessages = (body as { messages: unknown[] }).messages;
-
-  // Generous upper bound — the agent itself only uses the last
-  // MAX_HISTORY_MESSAGES, this just guards against absurd payloads.
-  if (rawMessages.length === 0 || rawMessages.length > MAX_HISTORY_MESSAGES * 4) {
-    return null;
-  }
-
-  const messages: AgentMessage[] = [];
-  for (const raw of rawMessages) {
-    if (typeof raw !== "object" || raw === null) return null;
-
-    const { id, role, content } = raw as Record<string, unknown>;
-    if (typeof role !== "string" || !VALID_ROLES.includes(role as ChatRole)) {
-      return null;
-    }
-    if (typeof content !== "string") return null;
-
-    const trimmed = content.trim();
-    if (trimmed.length === 0 || trimmed.length > MAX_MESSAGE_LENGTH) return null;
-
-    messages.push({
-      id: typeof id === "string" && id.length > 0 ? id : crypto.randomUUID(),
-      role: role as ChatRole,
-      content: trimmed,
-    });
-  }
-
-  const lastMessage = messages[messages.length - 1];
-  if (lastMessage.role !== "user") return null;
-
-  return messages;
-}
-
-/** null = "start a new conversation"; a string is only trusted after getOrCreateConversation verifies ownership. */
-function parseConversationId(body: unknown): string | null {
-  if (typeof body !== "object" || body === null || !("conversationId" in body)) return null;
-  const value = (body as { conversationId: unknown }).conversationId;
-  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 /**
@@ -148,7 +97,56 @@ interface CareerAgentTurnOutcome {
   jobResultsForClient: JobResultSummary[];
   jobContext: string | undefined;
   agentStateContext: string | undefined;
-  toolStatus: "searching_jobs" | "matching_job" | null;
+  toolStatus: "searching_jobs" | "matching_job" | "analyzing_job_url" | null;
+}
+
+/**
+ * Part 2/17 — the user pasted a job posting URL instead of describing
+ * what they want. Deterministic (no Gemini call needed to detect a URL),
+ * so this is checked before the state-extraction pipeline, not folded
+ * into it. `matchJob` differs per caller: an authenticated turn caches
+ * the match in job_matches (matchAndCacheJobs), a guest turn only
+ * computes it in-memory (matchJobForGuest) — see analyze-url.ts's own
+ * header comment for the real "client-rendered SPA" limitation this runs
+ * into for some sources (e.g. xpress.jobs), which is not a bug here.
+ */
+async function tryHandleJobUrlTurn(
+  userText: string,
+  currentState: CareerAgentState,
+  matchJob: (job: Job) => Promise<JobWithMatch>
+): Promise<CareerAgentTurnOutcome | null> {
+  const url = extractFirstUrl(userText);
+  if (!url) return null;
+
+  const analyzed = await analyzeJobUrl(url);
+
+  if (!analyzed.success) {
+    return {
+      state: currentState,
+      stateChanged: false,
+      jobResultsForClient: [],
+      jobContext: `The user pasted a link (${url}) hoping CareerLens could analyze it as a job vacancy, but it couldn't be read: ${analyzed.reason} Tell them honestly what happened and suggest pasting the job description text instead — never invent a job posting to fill the gap.`,
+      agentStateContext: buildAgentStateContext(currentState) ?? undefined,
+      toolStatus: "analyzing_job_url",
+    };
+  }
+
+  const matched = await matchJob(analyzed.job);
+  const summary = toJobResultSummary(matched, false);
+  const newState: CareerAgentState = {
+    ...currentState,
+    selectedJobId: matched.job.id,
+    lastResultJobIds: [summary.id],
+  };
+
+  return {
+    state: newState,
+    stateChanged: true,
+    jobResultsForClient: [summary],
+    jobContext: buildSelectedJobContext(matched),
+    agentStateContext: buildAgentStateContext(newState) ?? undefined,
+    toolStatus: "analyzing_job_url",
+  };
 }
 
 async function runCareerAgentTurn(
@@ -157,6 +155,12 @@ async function runCareerAgentTurn(
   currentState: CareerAgentState,
   careerContext: string | undefined
 ): Promise<CareerAgentTurnOutcome> {
+  const urlOutcome = await tryHandleJobUrlTurn(userText, currentState, async (job) => {
+    const [matched] = await matchAndCacheJobs(userId, [job], null);
+    return matched;
+  });
+  if (urlOutcome) return urlOutcome;
+
   const noOp: CareerAgentTurnOutcome = {
     state: currentState,
     stateChanged: false,
@@ -244,6 +248,9 @@ async function runGuestAgentTurn(
   currentState: CareerAgentState,
   candidate: GuestCandidate
 ): Promise<CareerAgentTurnOutcome> {
+  const urlOutcome = await tryHandleJobUrlTurn(userText, currentState, (job) => matchJobForGuest(job, candidate));
+  if (urlOutcome) return urlOutcome;
+
   const noOp: CareerAgentTurnOutcome = {
     state: currentState,
     stateChanged: false,

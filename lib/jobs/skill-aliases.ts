@@ -50,6 +50,8 @@ const SKILL_CANONICAL_MAP: Record<string, string> = {
   kubernetes: "kubernetes",
   k8s: "kubernetes",
   java: "java",
+  spring: "spring framework",
+  "spring framework": "spring framework",
   "c++": "c++",
   cpp: "c++",
   "c#": "c#",
