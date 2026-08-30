@@ -23,8 +23,10 @@ export function Navbar({ isAuthenticated }: { isAuthenticated: boolean }) {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const chatHref = isAuthenticated ? "/chat" : "/login?next=/chat";
-  const chatLabel = isAuthenticated ? "Open CareerLens →" : "Start Chatting →";
+  // /chat is guest-accessible (no account required) — the primary CTA
+  // always goes straight there; Login/Sign up are separate, secondary
+  // options for people who already have (or want) an account.
+  const chatLabel = isAuthenticated ? "Open CareerLens →" : "Continue as Guest →";
 
   return (
     <header
@@ -71,15 +73,23 @@ export function Navbar({ isAuthenticated }: { isAuthenticated: boolean }) {
               <LogoutButton />
             </>
           ) : (
-            <Link
-              href="/login"
-              className="text-sm font-medium text-navy-light/80 hover:text-navy"
-            >
-              Login
-            </Link>
+            <>
+              <Link
+                href="/login"
+                className="text-sm font-medium text-navy-light/80 hover:text-navy"
+              >
+                Login
+              </Link>
+              <Link
+                href="/signup"
+                className="text-sm font-medium text-navy-light/80 hover:text-navy"
+              >
+                Sign up
+              </Link>
+            </>
           )}
           <Link
-            href={chatHref}
+            href="/chat"
             className="inline-flex items-center gap-1 rounded-full bg-sea-gradient px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-ocean/20 transition-transform hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean focus-visible:ring-offset-2"
           >
             {chatLabel}
@@ -133,19 +143,30 @@ export function Navbar({ isAuthenticated }: { isAuthenticated: boolean }) {
                   </Link>
                 </li>
               ) : (
-                <li>
-                  <Link
-                    href="/login"
-                    onClick={() => setOpen(false)}
-                    className="block rounded-lg px-2 py-2.5 text-sm font-medium text-navy-light/80 hover:bg-foam hover:text-navy"
-                  >
-                    Login
-                  </Link>
-                </li>
+                <>
+                  <li>
+                    <Link
+                      href="/login"
+                      onClick={() => setOpen(false)}
+                      className="block rounded-lg px-2 py-2.5 text-sm font-medium text-navy-light/80 hover:bg-foam hover:text-navy"
+                    >
+                      Login
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      href="/signup"
+                      onClick={() => setOpen(false)}
+                      className="block rounded-lg px-2 py-2.5 text-sm font-medium text-navy-light/80 hover:bg-foam hover:text-navy"
+                    >
+                      Sign up
+                    </Link>
+                  </li>
+                </>
               )}
               <li className="pt-2">
                 <Link
-                  href={chatHref}
+                  href="/chat"
                   onClick={() => setOpen(false)}
                   className="flex items-center justify-center gap-1 rounded-full bg-sea-gradient px-5 py-2.5 text-sm font-semibold text-white"
                 >

@@ -1,10 +1,15 @@
 import { ChatLayout } from "@/components/chat/ChatLayout";
-import { requireUser } from "@/lib/auth/require-user";
+import { getOptionalUser } from "@/lib/auth/require-user";
 import { getConversationsForUser } from "@/lib/chat/get-conversations";
 
 export default async function ChatPage() {
-  const user = await requireUser("/chat");
-  const conversations = await getConversationsForUser(user.id);
+  const user = await getOptionalUser();
 
-  return <ChatLayout conversations={conversations} />;
+  if (!user) {
+    return <ChatLayout guest />;
+  }
+
+  const { conversations, failed } = await getConversationsForUser(user.id);
+
+  return <ChatLayout conversations={conversations} conversationsFailed={failed} />;
 }

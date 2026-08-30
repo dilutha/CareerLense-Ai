@@ -5,8 +5,6 @@ import { motion } from "framer-motion";
 import { RobotHero } from "./robot/RobotHero";
 
 export function Hero({ isAuthenticated }: { isAuthenticated: boolean }) {
-  const chatHref = isAuthenticated ? "/chat" : "/login?next=/chat";
-
   return (
     <section className="relative overflow-hidden bg-sea-gradient-soft">
       <div className="relative mx-auto flex w-full max-w-6xl flex-col-reverse items-center gap-10 px-6 pb-20 pt-16 sm:pb-28 sm:pt-24 lg:flex-row lg:gap-12">
@@ -25,11 +23,21 @@ export function Hero({ isAuthenticated }: { isAuthenticated: boolean }) {
           </p>
 
           <Link
-            href={chatHref}
+            href="/chat"
             className="mt-2 inline-flex items-center gap-2 rounded-full bg-sea-gradient px-7 py-3.5 text-base font-semibold text-white shadow-lg shadow-ocean/25 transition-transform hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean focus-visible:ring-offset-2"
           >
             Let&apos;s Talk →
           </Link>
+
+          {!isAuthenticated && (
+            <p className="text-sm text-navy-light/60">
+              No account needed —{" "}
+              <Link href="/signup" className="font-medium text-ocean hover:text-navy">
+                sign up
+              </Link>{" "}
+              later to save your progress.
+            </p>
+          )}
 
           <p className="text-sm font-medium text-navy-light/60">
             Sinhala • Singlish • English

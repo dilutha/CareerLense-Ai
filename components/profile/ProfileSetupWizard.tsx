@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, Loader2, Plus, Waves, X } from "lucide-react";
+import { ArrowRight, FileText, GitFork, Globe, Loader2, MessageCircle, Plus, Waves, X } from "lucide-react";
 import {
   addEducation,
   addProfileSkill,
@@ -11,6 +11,9 @@ import {
   updateBasicProfile,
   updateCareerPreferences,
 } from "@/lib/career-profile/actions";
+import { analyzeGitHub } from "@/lib/github/actions";
+import { analyzePortfolio } from "@/lib/portfolio/actions";
+import { getResumeReviewSummary, processResume, uploadResume, type ResumeReviewSummary } from "@/lib/resume/actions";
 import type { SkillProficiency } from "@/lib/supabase/types";
 import { createRequestGuard } from "@/lib/utils/request-guard";
 
@@ -26,6 +29,292 @@ const ROLE_SUGGESTIONS = [
 
 const inputClass =
   "w-full rounded-xl border border-navy/10 bg-foam px-4 py-2.5 text-sm text-navy placeholder:text-navy-light/50 focus:border-ocean/40 focus:outline-none sm:text-base";
+
+type UrlSourceKind = "portfolio" | "github";
+
+/**
+ * Part 1's redesigned entry point — CV/portfolio/GitHub/chat/skip, instead
+ * of forcing the 7-step manual wizard below. Only CV upload leads into a
+ * review step here (the only source with a clean structured extraction
+ * already wired to the profile tables — see lib/career-profile/
+ * populate-from-resume.ts); portfolio/GitHub just run their existing
+ * analysis and confirm, then continue.
+ */
+function WelcomeSourceStep({
+  onCvUploaded,
+  onSkipToChat,
+}: {
+  onCvUploaded: (resumeId: string) => void;
+  onSkipToChat: () => void;
+}) {
+  const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [urlMode, setUrlMode] = useState<UrlSourceKind | null>(null);
+  const [urlInput, setUrlInput] = useState("");
+  const [urlPending, setUrlPending] = useState(false);
+  const [urlMessage, setUrlMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleFile(file: File) {
+    setError(null);
+    setUploading(true);
+
+    const formData = new FormData();
+    formData.append("file", file);
+    const uploaded = await uploadResume(formData);
+    if (!uploaded.success || !uploaded.resumeId) {
+      setUploading(false);
+      setError(uploaded.error ?? "Couldn't upload that file.");
+      return;
+    }
+
+    const processed = await processResume(uploaded.resumeId);
+    setUploading(false);
+    if (!processed.success) {
+      setError(processed.error ?? "Couldn't read that CV.");
+      return;
+    }
+    onCvUploaded(uploaded.resumeId);
+  }
+
+  async function submitUrl() {
+    const url = urlInput.trim();
+    if (!url) return;
+    setUrlPending(true);
+    setError(null);
+    setUrlMessage(null);
+
+    const result =
+      urlMode === "github" ? await analyzeGitHub(url) : await analyzePortfolio(url);
+
+    setUrlPending(false);
+    if (!result.success) {
+      setError(
+        result.error ??
+          `I couldn't read that ${urlMode} automatically. You can continue with your CV or tell me about your experience in chat.`
+      );
+      return;
+    }
+    setUrlMessage(
+      urlMode === "github"
+        ? "Got it — I've pulled in the languages and projects from your public repos."
+        : "Got it — I've taken a look at your portfolio."
+    );
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="flex w-full max-w-lg flex-col gap-6"
+    >
+      <div className="flex flex-col gap-1">
+        <h2 className="text-xl font-semibold text-navy sm:text-2xl">Let&apos;s build your career profile</h2>
+        <p className="text-sm text-navy-light/70">
+          You don&apos;t need to fill everything manually. Upload your CV, share your portfolio or
+          GitHub, and I&apos;ll extract what I need.
+        </p>
+      </div>
+
+      {error && (
+        <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900">
+          {error}
+        </div>
+      )}
+      {urlMessage && (
+        <div className="rounded-xl border border-ocean/20 bg-foam px-3.5 py-2.5 text-sm text-navy">
+          {urlMessage}
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleFile(file);
+            e.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          disabled={uploading}
+          onClick={() => fileInputRef.current?.click()}
+          className="flex items-center gap-2.5 rounded-xl border border-navy/10 bg-white px-4 py-3.5 text-left text-sm font-medium text-navy shadow-sm transition-colors hover:border-ocean/30 disabled:opacity-60"
+        >
+          {uploading ? (
+            <Loader2 className="h-5 w-5 shrink-0 animate-spin text-ocean" aria-hidden="true" />
+          ) : (
+            <FileText className="h-5 w-5 shrink-0 text-ocean" aria-hidden="true" />
+          )}
+          {uploading ? "Reading your CV..." : "Upload CV / Resume"}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setUrlMode("portfolio");
+            setUrlMessage(null);
+            setError(null);
+          }}
+          className="flex items-center gap-2.5 rounded-xl border border-navy/10 bg-white px-4 py-3.5 text-left text-sm font-medium text-navy shadow-sm transition-colors hover:border-ocean/30"
+        >
+          <Globe className="h-5 w-5 shrink-0 text-ocean" aria-hidden="true" />
+          Portfolio URL
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setUrlMode("github");
+            setUrlMessage(null);
+            setError(null);
+          }}
+          className="flex items-center gap-2.5 rounded-xl border border-navy/10 bg-white px-4 py-3.5 text-left text-sm font-medium text-navy shadow-sm transition-colors hover:border-ocean/30"
+        >
+          <GitFork className="h-5 w-5 shrink-0 text-ocean" aria-hidden="true" />
+          GitHub URL
+        </button>
+
+        <button
+          type="button"
+          onClick={onSkipToChat}
+          className="flex items-center gap-2.5 rounded-xl border border-navy/10 bg-white px-4 py-3.5 text-left text-sm font-medium text-navy shadow-sm transition-colors hover:border-ocean/30"
+        >
+          <MessageCircle className="h-5 w-5 shrink-0 text-ocean" aria-hidden="true" />
+          Continue with Chat
+        </button>
+      </div>
+
+      {urlMode && (
+        <div className="flex flex-col gap-2 rounded-xl border border-navy/10 bg-foam p-3.5">
+          <div className="flex gap-2">
+            <input
+              autoFocus
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitUrl();
+              }}
+              placeholder={urlMode === "github" ? "github.com/yourusername" : "https://your-portfolio.com"}
+              className={inputClass}
+            />
+            <button
+              type="button"
+              disabled={!urlInput.trim() || urlPending}
+              onClick={submitUrl}
+              className="flex shrink-0 items-center gap-2 rounded-xl bg-sea-gradient px-4 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {urlPending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+              Go
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-4 pt-1">
+        <button
+          type="button"
+          onClick={onSkipToChat}
+          className="text-sm font-medium text-navy-light/60 hover:text-navy"
+        >
+          Skip for now
+        </button>
+        <button
+          type="button"
+          onClick={() => router.push("/profile")}
+          className="text-sm font-medium text-navy-light/60 hover:text-navy"
+        >
+          I&apos;d rather fill it in manually →
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+/** Part 2's compact "here's what I found" review — never forces every field, just confirms/edits. */
+function CvReviewStep({
+  summary,
+  onLooksGood,
+  onAddManually,
+}: {
+  summary: ResumeReviewSummary;
+  onLooksGood: () => void;
+  onAddManually: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="flex w-full max-w-lg flex-col gap-5"
+    >
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium uppercase tracking-wide text-ocean">From your CV</span>
+        <h2 className="text-xl font-semibold text-navy sm:text-2xl">Here&apos;s what I found</h2>
+      </div>
+
+      <div className="flex flex-col gap-3 rounded-2xl border border-navy/10 bg-foam p-4 text-sm text-navy">
+        {summary.educationSummary && (
+          <p>
+            <span aria-hidden="true">🎓</span> {summary.educationSummary}
+          </p>
+        )}
+        {summary.experienceSummary && (
+          <p>
+            <span aria-hidden="true">💼</span> {summary.experienceSummary}
+          </p>
+        )}
+        {summary.skills.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span aria-hidden="true">🛠</span>
+            {summary.skills.slice(0, 12).map((skill) => (
+              <span key={skill} className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-navy-light/80">
+                {skill}
+              </span>
+            ))}
+          </div>
+        )}
+        {summary.projectCount > 0 && (
+          <p>
+            <span aria-hidden="true">📊</span> {summary.projectCount} project
+            {summary.projectCount === 1 ? "" : "s"} found
+          </p>
+        )}
+        {summary.suggestedTargetRole && (
+          <p>
+            <span aria-hidden="true">🎯</span> Possible target role: {summary.suggestedTargetRole}
+          </p>
+        )}
+      </div>
+
+      <p className="text-sm text-navy-light/70">Is this correct?</p>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={onLooksGood}
+          className="flex items-center gap-2 rounded-full bg-sea-gradient px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-ocean/20 transition-transform hover:scale-[1.02]"
+        >
+          Looks good
+          <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          onClick={onAddManually}
+          className="text-sm font-medium text-navy-light/60 hover:text-navy"
+        >
+          Add something
+        </button>
+      </div>
+    </motion.div>
+  );
+}
 
 function StepShell({
   eyebrow,
@@ -85,8 +374,12 @@ function StepShell({
   );
 }
 
+type Phase = "welcome" | "cvReview" | "wizard";
+
 export function ProfileSetupWizard({ initialName }: { initialName: string }) {
   const router = useRouter();
+  const [phase, setPhase] = useState<Phase>("welcome");
+  const [cvSummary, setCvSummary] = useState<ResumeReviewSummary | null>(null);
   const [step, setStep] = useState(0);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -151,6 +444,36 @@ export function ProfileSetupWizard({ initialName }: { initialName: string }) {
       }
       next();
     });
+  }
+
+  async function handleCvUploaded(resumeId: string) {
+    const result = await getResumeReviewSummary(resumeId);
+    if (!result.success || !result.summary) {
+      // Analysis itself succeeded (processResume already returned success
+      // before this was called) but the review fetch didn't — don't block
+      // onboarding on a summary that failed to load, per Part 3.
+      router.push("/chat");
+      return;
+    }
+    setCvSummary(result.summary);
+    if (result.summary.suggestedTargetRole) setTargetRole(result.summary.suggestedTargetRole);
+    setPhase("cvReview");
+  }
+
+  if (phase === "welcome") {
+    return (
+      <WelcomeSourceStep onCvUploaded={handleCvUploaded} onSkipToChat={() => router.push("/chat")} />
+    );
+  }
+
+  if (phase === "cvReview" && cvSummary) {
+    return (
+      <CvReviewStep
+        summary={cvSummary}
+        onLooksGood={() => router.push("/chat")}
+        onAddManually={() => setPhase("wizard")}
+      />
+    );
   }
 
   return (

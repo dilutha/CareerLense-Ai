@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getOptionalUser } from "@/lib/auth/require-user";
 import { getCareerProfile } from "@/lib/career-profile/get-profile";
+import { populateProfileFromSkillsAndProjects } from "@/lib/career-profile/populate-from-resume";
 import { getDefaultResume } from "@/lib/resume/get-resumes";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { analyzeGitHubProfile } from "./analyze-github";
@@ -93,6 +94,31 @@ export async function analyzeGitHub(
   if (error || !inserted) {
     console.error("[github] Saving analysis failed:", error?.message);
     return { success: false, error: "Analyzed it, but couldn't save the result. Try again." };
+  }
+
+  // Best-effort — languages GitHub itself reports per repo are a reliable
+  // structured signal ("X appears in your public GitHub projects", never
+  // "professional X developer" per Part 4); repo name/description become
+  // project entries. No extra Gemini call — this is the same repos list
+  // already fetched above.
+  try {
+    const languages = [...new Set(fetched.profile.repos.map((r) => r.language).filter((l): l is string => Boolean(l)))];
+    await populateProfileFromSkillsAndProjects(
+      supabase,
+      user.id,
+      {
+        skills: languages.map((name) => ({ name, category: "programming" })),
+        projects: fetched.profile.repos
+          .filter((r) => !r.isFork)
+          .map((r) => ({ name: r.name, description: r.description })),
+      },
+      "github"
+    );
+  } catch (populateError) {
+    console.error(
+      "[github] Profile auto-population failed:",
+      populateError instanceof Error ? populateError.message : String(populateError)
+    );
   }
 
   revalidatePath("/github");

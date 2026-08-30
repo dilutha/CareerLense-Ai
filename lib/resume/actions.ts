@@ -7,6 +7,8 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { extractResumeText, ScannedDocumentError } from "./extract-text";
 import { parseAndEvaluateResume } from "./parse-resume";
 import { buildResumeAnalysisRecord } from "./analyze-resume";
+import { populateProfileFromResume } from "@/lib/career-profile/populate-from-resume";
+import { getResumeById } from "./get-resumes";
 import type { ResumeFileType } from "./types";
 
 export interface ActionResult {
@@ -191,6 +193,18 @@ export async function processResumeCore(
       throw new Error(analysisError.message);
     }
 
+    // Best-effort — a failure here shouldn't fail the whole upload/analysis
+    // (the resume_analysis row is already saved and usable); the profile
+    // just won't be auto-populated from this CV this time.
+    try {
+      await populateProfileFromResume(supabase, userId, output.parsed);
+    } catch (populateError) {
+      console.error(
+        `[resume] Profile auto-population failed for resume ${resumeId}:`,
+        populateError instanceof Error ? populateError.message : String(populateError)
+      );
+    }
+
     await supabase
       .from("resumes")
       .update({ status: "ready", error_message: null })
@@ -217,6 +231,44 @@ export async function processResumeCore(
     revalidateResumeViews(resumeId);
     return { success: false, error: message };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Review summary — a compact, honest "here's what I found" for onboarding
+// (Part 2), built from the same resume_analysis row already saved above.
+// ---------------------------------------------------------------------------
+
+export interface ResumeReviewSummary {
+  skills: string[];
+  educationSummary: string | null;
+  experienceSummary: string | null;
+  projectCount: number;
+  suggestedTargetRole: string | null;
+}
+
+export async function getResumeReviewSummary(
+  resumeId: string
+): Promise<ActionResult & { summary?: ResumeReviewSummary }> {
+  const userId = await requireUserId();
+  if (!userId) return { success: false, error: "Please log in again." };
+
+  const withDetails = await getResumeById(userId, resumeId);
+  if (!withDetails) return { success: false, error: "Couldn't find that resume." };
+  if (!withDetails.analysis) return { success: false, error: "Still analyzing — try again in a moment." };
+
+  const parsedExperience = (withDetails.version?.parsed_data as { experience?: { role: string }[] } | null)
+    ?.experience;
+
+  return {
+    success: true,
+    summary: {
+      skills: withDetails.analysis.skills.map((s) => s.name),
+      educationSummary: withDetails.analysis.education_summary,
+      experienceSummary: withDetails.analysis.experience_summary,
+      projectCount: withDetails.analysis.projects.length,
+      suggestedTargetRole: parsedExperience?.[0]?.role ?? null,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------

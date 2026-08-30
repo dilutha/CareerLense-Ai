@@ -6,23 +6,29 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { ChatMessage } from "@/lib/ai/types";
 import type { ConversationRow } from "@/lib/chat/types";
 import { ChatHeader } from "./ChatHeader";
+import type { GuestCandidate } from "./GuestCvUpload";
 import { ChatSidebar } from "./ChatSidebar";
 import { ChatWindow } from "./ChatWindow";
 
 export function ChatLayout({
   conversations: initialConversations = [],
+  conversationsFailed = false,
   activeConversationId = null,
   initialMessages = [],
+  guest = false,
 }: {
   conversations?: ConversationRow[];
+  conversationsFailed?: boolean;
   activeConversationId?: string | null;
   initialMessages?: ChatMessage[];
+  guest?: boolean;
 }) {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [resetKey, setResetKey] = useState(0);
   const [seenConversations, setSeenConversations] = useState(initialConversations);
   const [conversations, setConversations] = useState(initialConversations);
+  const [guestCandidate, setGuestCandidate] = useState<GuestCandidate | null>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -105,7 +111,9 @@ export function ChatLayout({
 
   const sidebarProps = {
     conversations,
+    conversationsFailed,
     activeConversationId,
+    guest,
     onNewChat: handleNewChat,
     onDeleted: handleConversationDeleted,
     onRenamed: handleConversationRenamed,
@@ -159,6 +167,9 @@ export function ChatLayout({
           conversationId={activeConversationId}
           initialMessages={initialMessages}
           onConversationCreated={handleConversationCreated}
+          guest={guest}
+          guestCandidate={guestCandidate}
+          onGuestCvParsed={setGuestCandidate}
         />
       </div>
     </div>

@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { BackLink } from "@/components/ui/BackLink";
 import { ApplicationsBoard } from "@/components/applications/ApplicationsBoard";
 import { requireUser } from "@/lib/auth/require-user";
 import { getApplicationsForUser, getUpcomingFollowUps } from "@/lib/applications/get-applications";
@@ -32,13 +31,7 @@ export default async function ApplicationsPage() {
   return (
     <main className="min-h-dvh bg-sea-gradient-soft px-6 py-10 sm:py-14">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
-        <Link
-          href="/career"
-          className="flex w-fit items-center gap-1.5 text-sm font-medium text-navy-light/70 hover:text-navy"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          Back to career dashboard
-        </Link>
+        <BackLink href="/career" label="Back to career dashboard" />
 
         <div className="flex items-start justify-between gap-4">
           <div>

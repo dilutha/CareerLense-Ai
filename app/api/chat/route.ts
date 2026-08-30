@@ -16,12 +16,13 @@ import { extractReminderIntent, looksLikeReminderMessage } from "@/lib/notificat
 import { matchApplicationByHint } from "@/lib/notifications/match-application";
 import { parseReminderDateTime } from "@/lib/notifications/parse-datetime";
 import { searchJobsForCurrentUser } from "@/lib/jobs/actions";
+import { searchJobsForGuest, type GuestCandidate } from "@/lib/jobs/guest-search";
 import { selectChatResults } from "@/lib/jobs/rank";
 import { buildJobResultsContext, toJobResultSummary, type JobResultSummary } from "@/lib/jobs/summary";
 import { buildResumeContext } from "@/lib/resume/get-resume-context";
 import { getOrCreateConversation, saveMessage } from "@/lib/chat/persist";
 import { getAgentState, saveAgentState } from "@/lib/agent-state/persist";
-import { emptyAgentState, type CareerAgentState } from "@/lib/agent-state/schema";
+import { CareerAgentStateSchema, emptyAgentState, type CareerAgentState } from "@/lib/agent-state/schema";
 import { shouldExtractStateUpdate, extractStateUpdate } from "@/lib/agent-state/extract-update";
 import { mergeAgentState } from "@/lib/agent-state/merge";
 import { resolveJobReference } from "@/lib/agent-state/resolve-reference";
@@ -92,6 +93,34 @@ function parseConversationId(body: unknown): string | null {
   if (typeof body !== "object" || body === null || !("conversationId" in body)) return null;
   const value = (body as { conversationId: unknown }).conversationId;
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/**
+ * Guest-only: the client carries its own conversational-search state across
+ * turns (there's no conversation row to persist it against — see the
+ * "agentState" ChatStreamEvent). Validated with the same Zod schema used
+ * for the persisted, authenticated version rather than trusted as-is —
+ * this is untrusted client JSON.
+ */
+function parseGuestAgentState(body: unknown): CareerAgentState {
+  if (typeof body !== "object" || body === null || !("agentState" in body)) return emptyAgentState();
+  const parsed = CareerAgentStateSchema.safeParse((body as { agentState: unknown }).agentState);
+  return parsed.success ? parsed.data : emptyAgentState();
+}
+
+/** Guest-only ephemeral candidate (from a temporarily-parsed CV) — never a stored profile. */
+function parseGuestCandidate(body: unknown): GuestCandidate {
+  const empty: GuestCandidate = { skills: [], targetRole: null };
+  if (typeof body !== "object" || body === null || !("guestCandidate" in body)) return empty;
+
+  const raw = (body as { guestCandidate: unknown }).guestCandidate;
+  if (typeof raw !== "object" || raw === null) return empty;
+
+  const { skills, targetRole } = raw as Record<string, unknown>;
+  return {
+    skills: Array.isArray(skills) ? skills.filter((s): s is string => typeof s === "string").slice(0, 50) : [],
+    targetRole: typeof targetRole === "string" && targetRole.trim().length > 0 ? targetRole.trim().slice(0, 120) : null,
+  };
 }
 
 /**
@@ -201,6 +230,78 @@ async function runCareerAgentTurn(
 }
 
 /**
+ * The guest equivalent of runCareerAgentTurn — same deterministic
+ * extract/merge/filter/rank pipeline, but: state lives only in the
+ * request/response (no getAgentState/saveAgentState DB calls), search goes
+ * through searchJobsForGuest (no job_matches write), and there's no
+ * per-user "re-fetch a previously selected job" branch (that needs a real
+ * job_matches row this guest doesn't have) — a reference to an
+ * already-shown job just falls back to the model's own reading of the
+ * conversation text rather than fresh grounded data.
+ */
+async function runGuestAgentTurn(
+  userText: string,
+  currentState: CareerAgentState,
+  candidate: GuestCandidate
+): Promise<CareerAgentTurnOutcome> {
+  const noOp: CareerAgentTurnOutcome = {
+    state: currentState,
+    stateChanged: false,
+    jobResultsForClient: [],
+    jobContext: undefined,
+    agentStateContext: buildAgentStateContext(currentState) ?? undefined,
+    toolStatus: null,
+  };
+
+  if (!shouldExtractStateUpdate(userText, currentState)) return noOp;
+
+  const update = await extractStateUpdate(userText, currentState, null);
+  if (!update) return noOp;
+
+  let state = mergeAgentState(currentState, update);
+
+  const referencedJobId = resolveJobReference(update.referencedResultIndex, currentState.lastResultJobIds);
+  if (referencedJobId) state = { ...state, selectedJobId: referencedJobId };
+
+  const searchRelevant = updateAffectsSearch(update);
+  const canSearch = state.intent === "job_search" && Boolean(state.targetRole);
+
+  let jobResultsForClient: JobResultSummary[] = [];
+  let jobContext: string | undefined;
+  let toolStatus: CareerAgentTurnOutcome["toolStatus"] = null;
+
+  if (canSearch && searchRelevant) {
+    toolStatus = "searching_jobs";
+    const criteria = buildSearchCriteria(state, 20);
+    const response = await searchJobsForGuest(criteria, candidate);
+    const excludeIds = update.wantsMoreResults ? currentState.lastResultJobIds : [];
+    const filtered = applyConversationalFilters(response.results, state, excludeIds);
+    const { results, belowQualityBar } = selectChatResults(filtered);
+    const summaries = results.map((r) => toJobResultSummary(r, r.job.source === "demo"));
+
+    jobResultsForClient = summaries;
+    jobContext = buildJobResultsContext(summaries) ?? undefined;
+    if (summaries.length === 0) {
+      jobContext =
+        "The user's refined job search returned nothing this time (not a fabricated-vs-real issue — genuinely nothing matched the current criteria, or every source was unavailable). Tell them honestly and suggest loosening a specific constraint (location, company type, seniority) — never invent listings to fill the gap.";
+    } else if (belowQualityBar) {
+      jobContext = `${jobContext}\n\nNote: these aren't strong matches (below the usual quality bar) — say so honestly rather than presenting them as great fits. Also mention that matching improves once they share their CV or sign in.`;
+    }
+
+    state = { ...state, lastResultJobIds: summaries.map((s) => s.id), lastSearchAt: new Date().toISOString() };
+  }
+
+  return {
+    state,
+    stateChanged: true,
+    jobResultsForClient,
+    jobContext,
+    agentStateContext: buildAgentStateContext(state) ?? undefined,
+    toolStatus,
+  };
+}
+
+/**
  * Runs when the latest message plausibly asks for a reminder to be set.
  * Follows the exact same shape as maybeSearchJobs above: a cheap keyword
  * gate, a small Gemini call that only EXTRACTS intent/company/date text
@@ -272,86 +373,115 @@ export async function POST(request: Request) {
     );
   }
 
-  // /chat is a protected route (see proxy.ts), so this should always be
-  // authenticated in normal usage — verified independently here rather
-  // than trusting that the request could only have arrived this way.
+  // /chat is guest-accessible (see proxy.ts and Part 7) — an authenticated
+  // request gets the full persisted, personalized pipeline; an
+  // unauthenticated one gets a stateless, non-persisted guest turn. Never
+  // trust anything from the request body for identity either way — userId
+  // only ever comes from the verified session below.
   const supabase = await createServerSupabaseClient();
   const { data: authData } = await supabase.auth.getClaims();
   const userId = authData?.claims?.sub;
 
-  if (!userId) {
-    return NextResponse.json({ error: "Please log in to chat with CareerLens." }, { status: 401 });
-  }
-
-  const requestedConversationId = parseConversationId(body);
   const lastUserMessageForPersist = messages[messages.length - 1];
-  const conversationId = await getOrCreateConversation(
-    supabase,
-    userId,
-    requestedConversationId,
-    lastUserMessageForPersist.content
-  );
-  if (requestedConversationId && !conversationId) {
-    // A conversationId was supplied but doesn't belong to this user — RLS
-    // would reject any write anyway, but fail explicitly here rather than
-    // silently starting a new conversation under a different id than the
-    // client expects (Part 20: never allow one user to touch another
-    // user's chats).
-    return NextResponse.json({ error: "That conversation isn't available." }, { status: 403 });
-  }
-  if (conversationId) {
-    await saveMessage(supabase, {
-      conversationId,
-      userId,
-      role: "user",
-      content: lastUserMessageForPersist.content,
-    });
-  }
-
-  const [careerProfile, resumeContext, readinessSnapshot, applications] = await Promise.all([
-    getCareerProfile(userId),
-    buildResumeContext(userId),
-    getCareerReadinessSnapshot(userId),
-    getApplicationsForUser(userId),
-  ]);
-  const careerContext = careerProfile ? buildCareerContext(careerProfile) : undefined;
-  const careerReadinessContext = buildCareerReadinessContext(readinessSnapshot) ?? undefined;
-
-  // Status history isn't fetched here (chat only needs aggregate counts,
-  // not the full per-transition timeline) — interviews-reached uses only
-  // each application's CURRENT status for this compact context, which
-  // slightly undercounts a rejection that came after an interview; the
-  // full /applications and /analytics pages use real history for that.
-  const applicationStats = computeApplicationStats(
-    applications.map((a) => a.application),
-    new Map<string, ApplicationStatusHistoryRow[]>()
-  );
-  const analyticsSummary = computeAnalyticsSummary(
-    applications.map((a) => a.job),
-    new Map(applications.filter((a) => a.match).map((a) => [a.job.id, a.match!]))
-  );
-  const applicationsContext = buildApplicationsContext(applicationStats, analyticsSummary) ?? undefined;
-
   const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
-  const currentAgentState = conversationId ? await getAgentState(supabase, userId, conversationId) : emptyAgentState();
-  const [turnOutcome, reminderContext] = await Promise.all([
-    lastUserMessage
-      ? runCareerAgentTurn(userId, lastUserMessage.content, currentAgentState, careerContext)
-      : Promise.resolve<CareerAgentTurnOutcome>({
-          state: currentAgentState,
+
+  let conversationId: string | null = null;
+  let authenticatedUserId: string | null = null;
+  let careerContext: string | undefined;
+  let resumeContext: string | null | undefined;
+  let careerReadinessContext: string | undefined;
+  let applicationsContext: string | undefined;
+  let reminderContext: string | undefined;
+  let turnOutcome: CareerAgentTurnOutcome;
+
+  if (userId) {
+    authenticatedUserId = userId;
+    const requestedConversationId = parseConversationId(body);
+    conversationId = await getOrCreateConversation(
+      supabase,
+      userId,
+      requestedConversationId,
+      lastUserMessageForPersist.content
+    );
+    if (requestedConversationId && !conversationId) {
+      // A conversationId was supplied but doesn't belong to this user — RLS
+      // would reject any write anyway, but fail explicitly here rather than
+      // silently starting a new conversation under a different id than the
+      // client expects (Part 20: never allow one user to touch another
+      // user's chats).
+      return NextResponse.json({ error: "That conversation isn't available." }, { status: 403 });
+    }
+    if (conversationId) {
+      await saveMessage(supabase, {
+        conversationId,
+        userId,
+        role: "user",
+        content: lastUserMessageForPersist.content,
+      });
+    }
+
+    const [careerProfile, resumeCtx, readinessSnapshot, applications] = await Promise.all([
+      getCareerProfile(userId),
+      buildResumeContext(userId),
+      getCareerReadinessSnapshot(userId),
+      getApplicationsForUser(userId),
+    ]);
+    careerContext = careerProfile ? buildCareerContext(careerProfile) : undefined;
+    resumeContext = resumeCtx;
+    careerReadinessContext = buildCareerReadinessContext(readinessSnapshot) ?? undefined;
+
+    // Status history isn't fetched here (chat only needs aggregate counts,
+    // not the full per-transition timeline) — interviews-reached uses only
+    // each application's CURRENT status for this compact context, which
+    // slightly undercounts a rejection that came after an interview; the
+    // full /applications and /analytics pages use real history for that.
+    const applicationStats = computeApplicationStats(
+      applications.map((a) => a.application),
+      new Map<string, ApplicationStatusHistoryRow[]>()
+    );
+    const analyticsSummary = computeAnalyticsSummary(
+      applications.map((a) => a.job),
+      new Map(applications.filter((a) => a.match).map((a) => [a.job.id, a.match!]))
+    );
+    applicationsContext = buildApplicationsContext(applicationStats, analyticsSummary) ?? undefined;
+
+    const currentAgentState = conversationId ? await getAgentState(supabase, userId, conversationId) : emptyAgentState();
+    const [outcome, reminder] = await Promise.all([
+      lastUserMessage
+        ? runCareerAgentTurn(userId, lastUserMessage.content, currentAgentState, careerContext)
+        : Promise.resolve<CareerAgentTurnOutcome>({
+            state: currentAgentState,
+            stateChanged: false,
+            jobResultsForClient: [],
+            jobContext: undefined,
+            agentStateContext: undefined,
+            toolStatus: null,
+          }),
+      lastUserMessage ? maybeCreateReminder(lastUserMessage.content, applications) : Promise.resolve(undefined),
+    ]);
+    turnOutcome = outcome;
+    reminderContext = reminder;
+
+    if (conversationId && turnOutcome.stateChanged) {
+      await saveAgentState(supabase, userId, conversationId, turnOutcome.state);
+    }
+  } else {
+    const currentState = parseGuestAgentState(body);
+    const candidate = parseGuestCandidate(body);
+    turnOutcome = lastUserMessage
+      ? await runGuestAgentTurn(lastUserMessage.content, currentState, candidate)
+      : {
+          state: currentState,
           stateChanged: false,
           jobResultsForClient: [],
           jobContext: undefined,
-          agentStateContext: undefined,
+          agentStateContext: buildAgentStateContext(currentState) ?? undefined,
           toolStatus: null,
-        }),
-    lastUserMessage ? maybeCreateReminder(lastUserMessage.content, applications) : Promise.resolve(undefined),
-  ]);
-  const jobResults = turnOutcome.jobResultsForClient;
-
-  if (conversationId && turnOutcome.stateChanged) {
-    await saveAgentState(supabase, userId, conversationId, turnOutcome.state);
+        };
   }
+
+  const jobResults = turnOutcome.jobResultsForClient;
+  const isGuest = !userId;
 
   const agentStream = streamCareerAgentReply(messages, {
     signal: request.signal,
@@ -391,6 +521,9 @@ export async function POST(request: Request) {
       if (conversationId) {
         writeEvent(controller, { type: "conversation", conversationId });
       }
+      if (isGuest) {
+        writeEvent(controller, { type: "agentState", state: turnOutcome.state });
+      }
       if (turnOutcome.toolStatus) {
         writeEvent(controller, { type: "status", toolStatus: turnOutcome.toolStatus });
       }
@@ -418,17 +551,18 @@ export async function POST(request: Request) {
           });
         }
       } finally {
-        if (conversationId) {
+        if (conversationId && authenticatedUserId) {
           // Persist whatever the assistant actually produced, even if the
           // stream was interrupted partway — discarding a partial reply
           // the user already saw would make a reloaded conversation lie
           // about what happened. Jobs are their own message row (mirrors
           // the client's own two-message-row rendering: a jobs card
-          // message, then the text reply that follows it).
+          // message, then the text reply that follows it). Guests never
+          // reach here (conversationId is always null for them).
           if (jobResults.length > 0) {
             await saveMessage(supabase, {
               conversationId,
-              userId,
+              userId: authenticatedUserId,
               role: "assistant",
               content: "",
               jobResults,
@@ -437,7 +571,7 @@ export async function POST(request: Request) {
           if (assistantText) {
             await saveMessage(supabase, {
               conversationId,
-              userId,
+              userId: authenticatedUserId,
               role: "assistant",
               content: assistantText,
             });

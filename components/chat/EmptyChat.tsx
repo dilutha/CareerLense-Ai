@@ -1,12 +1,17 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { GuestCvUpload, type GuestCandidate } from "./GuestCvUpload";
 import { SuggestedPrompts } from "./SuggestedPrompts";
 
 export function EmptyChat({
   onSelectPrompt,
+  guest = false,
+  onGuestCvParsed,
 }: {
   onSelectPrompt: (message: string) => void;
+  guest?: boolean;
+  onGuestCvParsed?: (candidate: GuestCandidate) => void;
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-8 px-6 py-12 text-center">
@@ -30,6 +35,16 @@ export function EmptyChat({
           &ldquo;machan mata internship ekak oni&rdquo;
         </p>
       </motion.div>
+
+      {guest && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+        >
+          <GuestCvUpload onParsed={(candidate) => onGuestCvParsed?.(candidate)} />
+        </motion.div>
+      )}
 
       <motion.div
         initial={{ opacity: 0, y: 16 }}

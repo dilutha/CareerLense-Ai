@@ -6,7 +6,6 @@ import { Container } from "@/components/ui/Container";
 
 export function FinalCTA({ isAuthenticated }: { isAuthenticated: boolean }) {
   const reducedMotion = useReducedMotion();
-  const chatHref = isAuthenticated ? "/chat" : "/login?next=/chat";
 
   return (
     <section className="relative overflow-hidden bg-sea-gradient py-24 text-white">
@@ -38,11 +37,12 @@ export function FinalCTA({ isAuthenticated }: { isAuthenticated: boolean }) {
           out the rest.
         </p>
         <Link
-          href={chatHref}
+          href="/chat"
           className="inline-flex items-center gap-1 rounded-full bg-white px-6 py-3 text-sm font-semibold text-navy shadow-lg transition-transform hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-ocean"
         >
           Start Chatting →
         </Link>
+        {!isAuthenticated && <p className="text-xs text-white/70">No account needed to start.</p>}
       </Container>
     </section>
   );

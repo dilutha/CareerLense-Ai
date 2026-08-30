@@ -16,6 +16,11 @@ const PROTECTED_PREFIXES = [
   "/analytics",
   "/notifications",
 ];
+// /chat itself is guest-accessible (Part 7 — chat, CV upload, and job
+// search all run through the conversational surface for guests). A real
+// persisted conversation (/chat/[id]) and every other route stay behind
+// auth, including the standalone /jobs browse page.
+const GUEST_ACCESSIBLE_PATHS = ["/chat"];
 const AUTH_ONLY_PATHS = ["/login", "/signup"];
 
 export async function proxy(request: NextRequest) {
@@ -23,9 +28,10 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isAuthenticated = Boolean(claims);
 
-  const isProtected = PROTECTED_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-  );
+  const isGuestAccessible = GUEST_ACCESSIBLE_PATHS.includes(pathname);
+  const isProtected =
+    !isGuestAccessible &&
+    PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   if (isProtected && !isAuthenticated) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);

@@ -57,14 +57,18 @@ function groupByRecency(conversations: ConversationRow[]): { group: string; item
 
 export function ChatSidebar({
   conversations,
+  conversationsFailed = false,
   activeConversationId,
+  guest = false,
   onNewChat,
   onNavigate,
   onDeleted,
   onRenamed,
 }: {
   conversations: ConversationRow[];
+  conversationsFailed?: boolean;
   activeConversationId: string | null;
+  guest?: boolean;
   onNewChat: () => void;
   onNavigate?: () => void;
   onDeleted: (id: string) => void;
@@ -103,7 +107,19 @@ export function ChatSidebar({
         aria-label="Conversation history"
         className="flex flex-1 flex-col gap-4 overflow-y-auto"
       >
-        {groups.length === 0 && (
+        {groups.length === 0 && guest && (
+          <p className="px-2.5 text-sm text-navy-light/50">
+            Sign in to save your conversations, resumes, and job matches.
+          </p>
+        )}
+
+        {groups.length === 0 && !guest && conversationsFailed && (
+          <p className="px-2.5 text-sm text-amber-700">
+            I couldn&apos;t load your conversation history right now. It&apos;s still safe — try refreshing.
+          </p>
+        )}
+
+        {groups.length === 0 && !guest && !conversationsFailed && (
           <p className="px-2.5 text-sm text-navy-light/50">Your conversations will show up here.</p>
         )}
 
@@ -130,30 +146,55 @@ export function ChatSidebar({
           <p className="px-2.5 text-xs font-semibold uppercase tracking-wide text-navy-light/40">
             Tools
           </p>
-          {TOOL_NAV.map(({ label, icon: Icon, href }) => (
-            <Link
-              key={label}
-              href={href}
-              onClick={onNavigate}
-              className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-navy-light/80 hover:bg-foam hover:text-navy"
-            >
-              <Icon className="h-4 w-4" aria-hidden="true" />
-              {label}
-            </Link>
-          ))}
+          {(guest ? TOOL_NAV.filter((item) => item.href === "/jobs") : TOOL_NAV).map(
+            ({ label, icon: Icon, href }) => (
+              <Link
+                key={label}
+                href={href}
+                onClick={onNavigate}
+                className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-navy-light/80 hover:bg-foam hover:text-navy"
+              >
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                {label}
+              </Link>
+            )
+          )}
         </div>
       </nav>
 
       <div className="flex flex-col gap-1 border-t border-navy/10 pt-3">
-        <Link
-          href="/profile"
-          onClick={onNavigate}
-          className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-navy-light/80 hover:bg-foam hover:text-navy"
-        >
-          <User className="h-4 w-4" aria-hidden="true" />
-          Profile
-        </Link>
-        <LogoutButton className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-navy-light/80 hover:bg-foam hover:text-navy" />
+        {guest ? (
+          <>
+            <p className="px-2.5 text-xs text-navy-light/50">You&apos;re using CareerLens as a guest.</p>
+            <Link
+              href="/signup"
+              onClick={onNavigate}
+              className="flex items-center gap-2.5 rounded-lg bg-sea-gradient px-2.5 py-2 text-sm font-semibold text-white hover:opacity-90"
+            >
+              <User className="h-4 w-4" aria-hidden="true" />
+              Create free account
+            </Link>
+            <Link
+              href="/login"
+              onClick={onNavigate}
+              className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-navy-light/80 hover:bg-foam hover:text-navy"
+            >
+              Sign in
+            </Link>
+          </>
+        ) : (
+          <>
+            <Link
+              href="/profile"
+              onClick={onNavigate}
+              className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-navy-light/80 hover:bg-foam hover:text-navy"
+            >
+              <User className="h-4 w-4" aria-hidden="true" />
+              Profile
+            </Link>
+            <LogoutButton className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-navy-light/80 hover:bg-foam hover:text-navy" />
+          </>
+        )}
       </div>
     </div>
   );

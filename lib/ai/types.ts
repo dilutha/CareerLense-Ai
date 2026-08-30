@@ -64,7 +64,13 @@ export type ChatStreamEvent =
   | { type: "status"; toolStatus: ToolStatusType }
   | { type: "text"; content: string }
   | { type: "jobs"; jobs: unknown[] }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  // Guest-only: the server has no conversation row to persist agent state
+  // against, so it hands the updated conversational-search state back to
+  // the client, which replays it on the next turn's request body. Kept as
+  // `unknown` here for the same lib/ai -> lib/jobs decoupling reason as
+  // `jobs` above; narrowed to CareerAgentState at the guest call site.
+  | { type: "agentState"; state: unknown };
 
 /**
  * Lightweight, server-side-only classification of what the user is asking

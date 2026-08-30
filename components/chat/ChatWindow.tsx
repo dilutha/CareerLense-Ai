@@ -29,6 +29,9 @@ export function ChatWindow({
   conversationId = null,
   initialMessages = [],
   onConversationCreated,
+  guest = false,
+  guestCandidate = null,
+  onGuestCvParsed,
 }: {
   /** The persisted conversation this window is continuing, or null for a fresh chat that hasn't been saved yet. */
   conversationId?: string | null;
@@ -36,6 +39,12 @@ export function ChatWindow({
   initialMessages?: ChatMessage[];
   /** Called once, the moment a fresh chat's first turn creates a real conversation row — lets the parent update the sidebar/URL. */
   onConversationCreated?: (id: string) => void;
+  /** No persistence, no profile/resume/applications context — the server runs a stateless turn (see /api/chat's guest branch). */
+  guest?: boolean;
+  /** An ephemerally-parsed CV's skills/target role, held in the parent — never a stored profile. */
+  guestCandidate?: { skills: string[]; targetRole: string | null } | null;
+  /** Bubbles a freshly-parsed guest CV up to the parent so it survives this window remounting. */
+  onGuestCvParsed?: (candidate: { skills: string[]; targetRole: string | null }) => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [chatStatus, setChatStatus] = useState<ChatStatus>("idle");
@@ -45,8 +54,13 @@ export function ChatWindow({
   // Tracks the conversation this window is actually persisting to — starts
   // at the given conversationId (or null for a fresh chat) and is filled
   // in by the "conversation" stream event the first time a brand-new chat
-  // gets its first real message saved.
+  // gets its first real message saved. Stays null for the whole session
+  // in guest mode (the server never emits a "conversation" event there).
   const activeConversationIdRef = useRef<string | null>(conversationId);
+  // Guest-only: the server hands back the updated conversational-search
+  // state each turn (via the "agentState" event) since there's no
+  // conversation row to persist it against — replayed on the next request.
+  const guestAgentStateRef = useRef<unknown>(null);
 
   useEffect(() => {
     // Cancel any in-flight generation if this window unmounts (e.g. "New
@@ -103,6 +117,8 @@ export function ChatWindow({
       for await (const event of streamChatReply(historyForAgent, {
         signal: abortController.signal,
         conversationId: activeConversationIdRef.current,
+        agentState: guest ? guestAgentStateRef.current : undefined,
+        guestCandidate: guest ? (guestCandidate ?? { skills: [], targetRole: null }) : undefined,
       })) {
         shouldAutoScrollRef.current = true;
 
@@ -121,6 +137,11 @@ export function ChatWindow({
             // normally) without touching React at all.
             window.history.replaceState(null, "", `/chat/${event.conversationId}`);
           }
+          continue;
+        }
+
+        if (event.type === "agentState") {
+          guestAgentStateRef.current = event.state;
           continue;
         }
 
@@ -253,7 +274,7 @@ export function ChatWindow({
             />
           </div>
         ) : (
-          <EmptyChat onSelectPrompt={handleSend} />
+          <EmptyChat onSelectPrompt={handleSend} guest={guest} onGuestCvParsed={onGuestCvParsed} />
         )}
       </div>
 

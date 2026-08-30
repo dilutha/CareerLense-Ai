@@ -37,10 +37,13 @@ function useRoundedBox(width: number, height: number, depth: number, radius: num
 export function Robot({
   enablePointerTracking,
   reduceIntensity = false,
+  onOpenChat,
 }: {
   enablePointerTracking: boolean;
   /** Slightly calmer motion for the mobile canvas — smaller amplitude, not a different animation system. */
   reduceIntensity?: boolean;
+  /** Part 22 — a click still plays the local bounce, but also reveals the chat invite beside the robot. */
+  onOpenChat?: () => void;
 }) {
   const rootRef = useRef<THREE.Group>(null);
   const headRef = useRef<THREE.Group>(null);
@@ -209,6 +212,7 @@ export function Robot({
       onClick={(e) => {
         e.stopPropagation();
         triggerClick();
+        onOpenChat?.();
       }}
     >
       {/* Head */}

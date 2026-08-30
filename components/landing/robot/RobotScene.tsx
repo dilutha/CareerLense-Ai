@@ -27,7 +27,7 @@ function getCoarsePointerServerSnapshot(): boolean {
  * (Part 14). Always dynamically imported with `ssr: false` by the caller
  * (RobotHero.tsx), same pattern the previous HeroScene.tsx used.
  */
-export default function RobotScene() {
+export default function RobotScene({ onOpenChat }: { onOpenChat?: () => void }) {
   const isCoarsePointer = useSyncExternalStore(
     subscribeCoarsePointer,
     getCoarsePointerSnapshot,
@@ -44,7 +44,11 @@ export default function RobotScene() {
       <ambientLight intensity={0.7} />
       <directionalLight position={[2, 3, 2.5]} intensity={1.1} color="#ffffff" />
       <pointLight position={[-2, 0.5, -1.5]} intensity={0.6} color="#38bdf8" />
-      <Robot enablePointerTracking={!isCoarsePointer} reduceIntensity={isCoarsePointer} />
+      <Robot
+        enablePointerTracking={!isCoarsePointer}
+        reduceIntensity={isCoarsePointer}
+        onOpenChat={onOpenChat}
+      />
     </Canvas>
   );
 }

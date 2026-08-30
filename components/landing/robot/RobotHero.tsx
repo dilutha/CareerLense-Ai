@@ -1,9 +1,10 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import dynamic from "next/dynamic";
 import { useReducedMotion } from "framer-motion";
 import { useWebGLSupport } from "./use-webgl-support";
+import { RobotChatInvite } from "./RobotChatInvite";
 import { RobotFallback } from "./RobotFallback";
 import { RobotSpeechBubble } from "./RobotSpeechBubble";
 
@@ -25,19 +26,32 @@ const RobotScene = dynamic(() => import("./RobotScene"), {
 export function RobotHero() {
   const reducedMotion = useReducedMotion();
   const webglSupported = useWebGLSupport();
+  const [chatInviteOpen, setChatInviteOpen] = useState(false);
 
   const showScene = !reducedMotion && webglSupported;
+
+  function openChatInvite() {
+    setChatInviteOpen(true);
+  }
 
   return (
     <div className="relative h-full w-full">
       {showScene ? (
         <Suspense fallback={<RobotFallback />}>
-          <RobotScene />
+          <RobotScene onOpenChat={openChatInvite} />
         </Suspense>
       ) : (
-        <RobotFallback animated={!reducedMotion} />
+        <button
+          type="button"
+          onClick={openChatInvite}
+          aria-label="Open chat with CareerLens"
+          className="h-full w-full cursor-pointer bg-transparent"
+        >
+          <RobotFallback animated={!reducedMotion} />
+        </button>
       )}
-      {!reducedMotion && <RobotSpeechBubble />}
+      {!reducedMotion && !chatInviteOpen && <RobotSpeechBubble />}
+      <RobotChatInvite open={chatInviteOpen} />
     </div>
   );
 }

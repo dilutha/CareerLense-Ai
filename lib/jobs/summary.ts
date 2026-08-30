@@ -2,6 +2,20 @@ import { classifyFreshness, type FreshnessLabel } from "./freshness";
 import { getSourceConfidence, type SourceConfidence } from "./source-confidence";
 import { matchCategory, type JobWithMatch } from "./types";
 
+/**
+ * Per-dimension sub-scores, straight from the already-computed
+ * deterministic match (lib/jobs/match.ts) — never a second calculation.
+ * Null when there's no match row at all (e.g. an unmatched/demo listing).
+ */
+export interface MatchScoreBreakdown {
+  skills: number | null;
+  role: number | null;
+  experience: number | null;
+  education: number | null;
+  location: number | null;
+  keywords: number | null;
+}
+
 /** Compact job shape sent over the wire to the browser and rendered as a JobCard. */
 export interface JobResultSummary {
   id: string;
@@ -14,6 +28,7 @@ export interface JobResultSummary {
   freshness: FreshnessLabel;
   matchScore: number;
   matchCategory: string;
+  matchBreakdown: MatchScoreBreakdown;
   matchedSkills: string[];
   missingRequiredSkills: string[];
   applicationUrl: string;
@@ -37,6 +52,14 @@ export function toJobResultSummary(item: JobWithMatch, isDemo: boolean): JobResu
     freshness: classifyFreshness(item.job.posted_at, item.job.first_seen_at),
     matchScore: item.match?.match_score ?? 0,
     matchCategory: matchCategory(item.match?.match_score ?? 0),
+    matchBreakdown: {
+      skills: item.match?.skills_score ?? null,
+      role: item.match?.role_score ?? null,
+      experience: item.match?.experience_score ?? null,
+      education: item.match?.education_score ?? null,
+      location: item.match?.location_score ?? null,
+      keywords: item.match?.keyword_score ?? null,
+    },
     matchedSkills: item.match?.matched_skills ?? [],
     missingRequiredSkills: item.match?.missing_required_skills ?? [],
     applicationUrl: item.job.application_url,

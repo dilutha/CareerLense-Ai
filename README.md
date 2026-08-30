@@ -490,4 +490,23 @@ under vitest without a real project).
 
 ## Deploy
 
-Intended for deployment on [Vercel](https://vercel.com).
+Intended for deployment on [Vercel](https://vercel.com). This repository
+does not itself claim to be deployed anywhere — there's no `vercel.json`
+and no production URL committed to the codebase. To deploy:
+
+1. Import the repo into Vercel and set every variable from the table
+   above in the project's Environment Variables settings — most are
+   server-only and must **never** be prefixed `NEXT_PUBLIC_*` (that
+   exposes them to the browser bundle). Only `NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
+   and `NEXT_PUBLIC_APP_URL` are meant to be public.
+2. Set `NEXT_PUBLIC_APP_URL` to the real deployed URL (e.g.
+   `https://your-project.vercel.app`), not `localhost` — development
+   keeps using `http://localhost:3000` in `.env.local`.
+3. **Vercel environment variable changes only take effect on the next
+   deployment** — trigger a redeploy after adding/editing any of them,
+   don't assume an existing running deployment picks them up live.
+4. If a WSO2 API Manager instance is put in front of `/api/v1/*` (see
+   [`docs/WSO2_API.md`](docs/WSO2_API.md)), its OAuth2 consumer
+   secret/client credentials belong in WSO2's own configuration, never in
+   this app's environment variables or anywhere prefixed `NEXT_PUBLIC_*`.

@@ -5,9 +5,9 @@ verified directly (`supabase migration list --linked` shows 001-007
 applied both locally and remotely; every expected table, column, RLS
 policy, constraint, trigger, and index was independently queried and
 confirmed present via `supabase db query --linked`, not inferred from the
-push command's success message alone). Migrations 010 (chat persistence)
-and 011 (agent state) are also applied and live-verified — see their
-sections below.
+push command's success message alone). Migrations 010 (chat persistence),
+011 (agent state), and 012 (profile source tracking) are also applied and
+live-verified — see their sections below.
 
 The WSO2 API Manager integration (`/api/v1`, see
 [`WSO2_API.md`](WSO2_API.md)) required **no new migration** — every
@@ -16,7 +16,7 @@ policies, just via a bearer-token-authenticated client instead of a
 cookie-based one (`lib/api/auth.ts`). No new tables, columns, or
 policies exist for the API layer.
 
-Apply all eleven, in order, via `supabase db push --linked` (uses the
+Apply all twelve, in order, via `supabase db push --linked` (uses the
 Supabase CLI's Management API path — no database password needed once the
 project is linked) or the SQL Editor:
 
@@ -31,6 +31,7 @@ project is linked) or the SQL Editor:
 9. [`009_notifications.sql`](../supabase/migrations/009_notifications.sql)
 10. [`010_chat_persistence.sql`](../supabase/migrations/010_chat_persistence.sql)
 11. [`011_agent_state.sql`](../supabase/migrations/011_agent_state.sql)
+12. [`012_profile_source_tracking.sql`](../supabase/migrations/012_profile_source_tracking.sql)
 
 ## Platform
 
@@ -632,6 +633,43 @@ shape change, rather than throwing) and every write (only ever written
 via `mergeAgentState`'s output, itself built from a schema-validated
 Gemini extraction). See `docs/AI_AGENT.md` for the full extraction/merge
 pipeline.
+
+## Schema (Usability overhaul) — profile source tracking
+
+One new column on each of `education`, `experience`, `projects`,
+`profile_skills` (migration 012): `source text not null default 'manual'
+check (source in ('manual','cv','portfolio','github','chat'))`.
+
+### Why
+
+The onboarding redesign auto-populates the profile from an uploaded CV
+(`lib/career-profile/populate-from-resume.ts#populateProfileFromResume`,
+called from `processResumeCore`) and from GitHub's public repo languages
+(`populateProfileFromSkillsAndProjects`, called from `analyzeGitHub`) —
+closing the previous gap where resume/GitHub analysis stayed siloed from
+the actual career-profile tables. `source` is how the UI (and a future
+prompt) can distinguish "you told me this" from "I found this on your
+CV/GitHub" without guessing. Portfolio analysis (`lib/portfolio/`) does
+**not** currently populate the profile — its Gemini output is an SEO/
+positioning critique with no structured skills/projects list, and adding
+one would mean a second Gemini call purely to manufacture data this
+schema change doesn't otherwise require; `source='portfolio'` exists in
+the check constraint for when that extraction is eventually built, not
+because anything writes it yet.
+
+### Merge semantics
+
+Additive-only — `populateProfileFromResume`/`populateProfileFromSkillsAndProjects`
+look up existing rows (case-insensitive on the fields that identify an
+entry: institution+degree, company+role, project/skill name) and only
+insert what's missing. Nothing already in the table (manual or
+otherwise) is ever updated or overwritten.
+
+### RLS
+
+None needed — `education`/`experience`/`projects`/`profile_skills` are
+already owner-scoped (migration 001's `profile_id = auth.uid()`
+policies); an added column doesn't change who can read/write a row.
 
 ## Planned for later phases (not yet created)
 

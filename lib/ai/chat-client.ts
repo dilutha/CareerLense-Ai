@@ -14,12 +14,24 @@ const FALLBACK_ERROR_MESSAGE =
  */
 export async function* streamChatReply(
   messages: AgentMessage[],
-  options: { signal?: AbortSignal; conversationId?: string | null } = {}
+  options: {
+    signal?: AbortSignal;
+    conversationId?: string | null;
+    /** Guest-only: the last agentState this window received back, replayed so the server can continue refining a search without a persisted conversation. */
+    agentState?: unknown;
+    /** Guest-only: an ephemerally-parsed CV's skills/target role — never a stored profile. */
+    guestCandidate?: { skills: string[]; targetRole: string | null } | null;
+  } = {}
 ): AsyncGenerator<ChatStreamEvent> {
   const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, conversationId: options.conversationId ?? null }),
+    body: JSON.stringify({
+      messages,
+      conversationId: options.conversationId ?? null,
+      agentState: options.agentState ?? undefined,
+      guestCandidate: options.guestCandidate ?? undefined,
+    }),
     signal: options.signal,
   });
 

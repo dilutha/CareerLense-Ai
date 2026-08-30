@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { BackLink } from "@/components/ui/BackLink";
 import { ApplicationDashboard } from "@/components/application/ApplicationDashboard";
 import { requireUser } from "@/lib/auth/require-user";
 import { getApplicationBundle } from "@/lib/application/get-application";
@@ -27,13 +26,7 @@ export default async function ApplicationPage(props: PageProps<"/application/[jo
     <main className="min-h-dvh bg-sea-gradient-soft px-6 py-10 sm:py-14 print:bg-white print:py-0">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
         <div className="flex items-center justify-between print:hidden">
-          <Link
-            href={`/jobs/${jobId}`}
-            className="flex items-center gap-1.5 text-sm font-medium text-navy-light/70 hover:text-navy"
-          >
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            Back to job
-          </Link>
+          <BackLink href={`/jobs/${jobId}`} label="Back to job" />
         </div>
 
         <div className="print:hidden">

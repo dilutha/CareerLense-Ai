@@ -8,7 +8,7 @@ export default async function ChatConversationPage({ params }: PageProps<"/chat/
   const { id } = await params;
   const user = await requireUser(`/chat/${id}`);
 
-  const [conversations, detail] = await Promise.all([
+  const [{ conversations, failed }, detail] = await Promise.all([
     getConversationsForUser(user.id),
     getConversationWithMessages(user.id, id),
   ]);
@@ -21,6 +21,7 @@ export default async function ChatConversationPage({ params }: PageProps<"/chat/
   return (
     <ChatLayout
       conversations={conversations}
+      conversationsFailed={failed}
       activeConversationId={id}
       initialMessages={detail.messages.map(toChatMessage)}
     />

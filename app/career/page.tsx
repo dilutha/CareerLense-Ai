@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { BackLink } from "@/components/ui/BackLink";
 import { requireUser } from "@/lib/auth/require-user";
 import { getCareerProfile } from "@/lib/career-profile/get-profile";
 import { getCareerReadinessSnapshot } from "@/lib/career/get-career";
@@ -69,6 +70,8 @@ export default async function CareerPage() {
   return (
     <main className="min-h-dvh bg-sea-gradient-soft px-6 py-10 sm:py-14">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+        <BackLink toChat />
+
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-navy sm:text-3xl">

@@ -7,6 +7,7 @@ import { Bookmark, BookmarkCheck, ExternalLink, Loader2, MessageCircleQuestion, 
 import { explainJobMatch, saveJob, unsaveJob } from "@/lib/jobs/actions";
 import type { JobResultSummary } from "@/lib/jobs/summary";
 import type { MatchCategory } from "@/lib/jobs/types";
+import { MatchBreakdown } from "./MatchBreakdown";
 
 const MATCH_STYLES: Record<MatchCategory, string> = {
   excellent: "bg-sea-gradient text-white",
@@ -102,6 +103,8 @@ export function JobCard({
           Demo data — no live job source configured yet
         </span>
       )}
+
+      {!compact && <MatchBreakdown breakdown={summary.matchBreakdown} />}
 
       {!compact && (summary.matchedSkills.length > 0 || summary.missingRequiredSkills.length > 0) && (
         <div className="flex flex-wrap gap-1.5">
