@@ -7,7 +7,7 @@ export const GET = apiHandler("GET /profile/skills", async (request) => {
   const auth = await authenticateApiRequest(request);
   if (!auth) return apiError("UNAUTHORIZED", "A valid Supabase access token is required.");
 
-  const profile = await getCareerProfile(auth.userId);
+  const profile = await getCareerProfile(auth.userId, auth.supabase);
   if (!profile) return apiError("NOT_FOUND", "No profile found for this account yet.");
 
   return apiSuccess({ skills: profile.skills });

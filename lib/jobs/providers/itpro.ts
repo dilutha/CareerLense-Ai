@@ -2,6 +2,7 @@ import "server-only";
 import { htmlToPlainText } from "../html-strip";
 import { NormalizedJobSchema, type NormalizedJob } from "../schemas";
 import type { JobSearchProvider, JobSearchQuery, ProviderSearchResult } from "./types";
+import { matchesRoleQuery } from "./role-match";
 
 /**
  * ITPro.lk (https://itpro.lk) — a real, live Sri Lankan job board with a
@@ -168,27 +169,8 @@ async function fetchJobs(): Promise<ItProJob[]> {
   }
 }
 
-/**
- * A coarse relevance gate only — NOT the real matcher. Its one job is to
- * keep totally unrelated postings (e.g. a "Sales Executive" listing) out
- * of an "SQL Data Analyst" search on a feed with no server-side filtering.
- * It deliberately does NOT require keyword overlap: keywords are exact
- * substrings (e.g. "power bi") and a real listing routinely phrases the
- * same skill differently ("PowerBI", "Power BI dashboards") or simply
- * doesn't restate every skill in the title/description. Requiring an
- * AND-match on keywords here silently dropped genuinely relevant jobs
- * before they ever reached computeJobMatch, which already scores partial
- * keyword/skill overlap gracefully — this gate must not duplicate or
- * pre-empt that scoring. Role tokens still gate (OR within tokens) since
- * that's the one signal cheap and reliable enough to reject on here.
- */
-export function matchesQuery(job: NormalizedJob, query: JobSearchQuery): boolean {
-  if (!query.role) return true;
-
-  const haystack = `${job.title} ${job.description ?? ""}`.toLowerCase();
-  const tokens = query.role.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
-  return tokens.length === 0 || tokens.some((t) => haystack.includes(t));
-}
+/** Re-exported for this file's own test coverage — the real logic (and its rationale) lives in role-match.ts, shared with company-careers.ts. */
+export const matchesQuery = matchesRoleQuery;
 
 export const itproJobProvider: JobSearchProvider = {
   name: "itpro",

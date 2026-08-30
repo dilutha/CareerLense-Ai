@@ -15,7 +15,7 @@ import { getResumesForUser } from "@/lib/resume/get-resumes";
 
 export default async function ProfilePage() {
   const user = await requireUser("/profile");
-  const [careerProfile, resumes] = await Promise.all([
+  const [{ profile: careerProfile }, resumes] = await Promise.all([
     getCareerProfileViaWso2OrDirect(user.id),
     getResumesForUser(user.id),
   ]);

@@ -58,11 +58,23 @@ export async function GET() {
   }
   const profileLatencyMs = Date.now() - profileStartedAt;
 
+  // Distinct failure modes, not collapsed into one boolean: a
+  // NETWORK_ERROR/TIMEOUT_ERROR means the gateway itself couldn't be
+  // reached at all; any other failure (e.g. AUTH_ERROR/900901) means the
+  // gateway WAS reached but rejected the configured credential. This is
+  // exactly the distinction that separated two real, unrelated incidents
+  // this project hit in production (a header-forwarding bug vs. an
+  // expired test key) — collapsing them back into one signal would hide
+  // that difference again.
+  const unreachableCategories = new Set(["NETWORK_ERROR", "TIMEOUT_ERROR"]);
+  const reachable = health.ok || !unreachableCategories.has(health.category ?? "");
+  const authenticated = health.ok;
+
   return NextResponse.json({
     configured: true,
-    reachable: health.ok,
-    authenticated: health.ok, // the WSO2 API-key layer only — see profile.ok for whether the end-user's own token round-trips through the gateway too
-    gateway: "wso2",
+    reachable,
+    authenticated, // the WSO2 API-key layer only — see profile.ok for whether the end-user's own token round-trips through the gateway too
+    gateway: reachable ? "wso2" : "unreachable",
     apiVersion: "v1.0",
     health: { ...health, latencyMs: healthLatencyMs },
     profile: { ...profile, latencyMs: profileLatencyMs },

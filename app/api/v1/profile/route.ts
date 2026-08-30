@@ -59,7 +59,7 @@ export const GET = apiHandler("GET /profile", async (request) => {
   const auth = await authenticateApiRequest(request);
   if (!auth) return apiError("UNAUTHORIZED", "A valid Supabase access token is required.");
 
-  const profile = await getCareerProfile(auth.userId);
+  const profile = await getCareerProfile(auth.userId, auth.supabase);
   if (!profile) return apiError("NOT_FOUND", "No profile found for this account yet.");
 
   return apiSuccess({ profile });
@@ -100,6 +100,6 @@ export const PUT = apiHandler("PUT /profile", async (request) => {
     if (error) return apiError("INTERNAL_ERROR", "Couldn't update preferences.");
   }
 
-  const updated = await getCareerProfile(auth.userId);
+  const updated = await getCareerProfile(auth.userId, auth.supabase);
   return apiSuccess({ profile: updated });
 });

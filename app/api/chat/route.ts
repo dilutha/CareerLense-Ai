@@ -195,7 +195,7 @@ async function runCareerAgentTurn(
     if (!("error" in response)) {
       const excludeIds = update.wantsMoreResults ? currentState.lastResultJobIds : [];
       const filtered = applyConversationalFilters(response.results, state, excludeIds);
-      const { results, belowQualityBar } = selectChatResults(filtered);
+      const { results, belowQualityBar, strongCount } = selectChatResults(filtered);
       const summaries = results.map((r) => toJobResultSummary(r, r.job.source === "demo"));
 
       jobResultsForClient = summaries;
@@ -203,8 +203,10 @@ async function runCareerAgentTurn(
       if (summaries.length === 0) {
         jobContext =
           "The user's refined job search returned nothing this time (not a fabricated-vs-real issue — genuinely nothing matched the current criteria, or every source was unavailable). Tell them honestly and suggest loosening a specific constraint (location, company type, seniority) — never invent listings to fill the gap.";
+      } else if (belowQualityBar && strongCount > 0) {
+        jobContext = `${jobContext}\n\nNote: the first ${strongCount} result(s) are genuinely strong matches — present those as "Strong Matches". The remaining ${summaries.length - strongCount} are real listings too but below the usual quality bar — present those separately as "Related Opportunities", honestly, not as strong fits.`;
       } else if (belowQualityBar) {
-        jobContext = `${jobContext}\n\nNote: these aren't strong matches (below the usual quality bar) — say so honestly rather than presenting them as great fits.`;
+        jobContext = `${jobContext}\n\nNote: none of these clear the usual quality bar — say so honestly and present them as "Related Opportunities" rather than strong fits.`;
       }
 
       state = { ...state, lastResultJobIds: summaries.map((s) => s.id), lastSearchAt: new Date().toISOString() };
@@ -283,7 +285,7 @@ async function runGuestAgentTurn(
     const response = await searchJobsForGuest(criteria, candidate);
     const excludeIds = update.wantsMoreResults ? currentState.lastResultJobIds : [];
     const filtered = applyConversationalFilters(response.results, state, excludeIds);
-    const { results, belowQualityBar } = selectChatResults(filtered);
+    const { results, belowQualityBar, strongCount } = selectChatResults(filtered);
     const summaries = results.map((r) => toJobResultSummary(r, r.job.source === "demo"));
 
     jobResultsForClient = summaries;
@@ -291,8 +293,10 @@ async function runGuestAgentTurn(
     if (summaries.length === 0) {
       jobContext =
         "The user's refined job search returned nothing this time (not a fabricated-vs-real issue — genuinely nothing matched the current criteria, or every source was unavailable). Tell them honestly and suggest loosening a specific constraint (location, company type, seniority) — never invent listings to fill the gap.";
+    } else if (belowQualityBar && strongCount > 0) {
+      jobContext = `${jobContext}\n\nNote: the first ${strongCount} result(s) are genuinely strong matches — present those as "Strong Matches". The remaining ${summaries.length - strongCount} are real listings too but below the usual quality bar — present those separately as "Related Opportunities", honestly, not as strong fits. Also mention that matching improves once they share their CV or sign in.`;
     } else if (belowQualityBar) {
-      jobContext = `${jobContext}\n\nNote: these aren't strong matches (below the usual quality bar) — say so honestly rather than presenting them as great fits. Also mention that matching improves once they share their CV or sign in.`;
+      jobContext = `${jobContext}\n\nNote: none of these clear the usual quality bar — say so honestly and present them as "Related Opportunities" rather than strong fits. Also mention that matching improves once they share their CV or sign in.`;
     }
 
     state = { ...state, lastResultJobIds: summaries.map((s) => s.id), lastSearchAt: new Date().toISOString() };

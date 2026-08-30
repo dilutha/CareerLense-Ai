@@ -2,6 +2,7 @@ import "server-only";
 import { extractJobPostingFromHtml } from "../jobposting-schema";
 import { NormalizedJobSchema, type NormalizedJob } from "../schemas";
 import { assertSafeExternalUrl, isAllowedByRobotsTxt, safeFetchText } from "../url-safety";
+import { matchesRoleQuery } from "./role-match";
 import type { JobSearchProvider, JobSearchQuery, ProviderSearchResult } from "./types";
 
 /**
@@ -96,12 +97,8 @@ async function fetchOneCompany(source: CompanyCareerSource): Promise<NormalizedJ
   return toNormalizedJob(source.company, source.careerUrl, posting);
 }
 
-function matchesQuery(job: NormalizedJob, query: JobSearchQuery): boolean {
-  if (!query.role) return true;
-  const haystack = `${job.title} ${job.description ?? ""}`.toLowerCase();
-  const tokens = query.role.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
-  return tokens.length === 0 || tokens.some((t) => haystack.includes(t));
-}
+/** Shared with itpro.ts (same "fetched-whole-then-filtered-locally" shape) — see role-match.ts for the rationale. */
+const matchesQuery = matchesRoleQuery;
 
 export const companyCareersProvider: JobSearchProvider = {
   name: "company-careers",

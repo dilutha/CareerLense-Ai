@@ -28,7 +28,7 @@ export const POST = apiHandler("POST /ai/career-analysis", async (request) => {
 
   // Real profile/resume context, if any, is passed as ADDITIONAL grounding
   // — never a substitute for what was actually given in the request.
-  const profile = await getCareerProfile(auth.userId);
+  const profile = await getCareerProfile(auth.userId, auth.supabase);
   const profileContext = profile ? buildCareerContext(profile) : null;
 
   const analysis = await runCareerAnalysis(parsed.data, profileContext);

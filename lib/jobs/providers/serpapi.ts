@@ -264,11 +264,17 @@ export const serpApiJobProvider: JobSearchProvider = {
 
     const anyOk = outcomes.some((o) => o.status === "ok");
     if (anyOk) {
-      return { provider: "serpapi", status: "ok", jobs };
+      return { provider: "serpapi", status: "ok", jobs, queriesExecuted: outcomes.length };
     }
 
     // Every query variant failed the same way — surface the first failure honestly.
     const failure = outcomes[0];
-    return { provider: "serpapi", status: failure.status, jobs: [], message: failure.message };
+    return {
+      provider: "serpapi",
+      status: failure.status,
+      jobs: [],
+      message: failure.message,
+      queriesExecuted: outcomes.length,
+    };
   },
 };

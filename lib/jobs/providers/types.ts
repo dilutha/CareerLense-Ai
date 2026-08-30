@@ -16,6 +16,8 @@ export interface ProviderSearchResult {
   jobs: NormalizedJob[];
   /** Set when status isn't "ok" — never fabricated results. */
   message?: string;
+  /** How many distinct provider-level queries this search actually dispatched (tiered providers like SerpApi may stop early) — cost-control observability, not shown to end users. Omitted by providers that don't have a meaningful notion of "one query" (e.g. ITPro fetches one static list and filters locally). */
+  queriesExecuted?: number;
 }
 
 export interface JobSearchProvider {

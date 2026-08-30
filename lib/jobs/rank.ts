@@ -39,6 +39,13 @@ export interface ChatResultSelection {
    *  cleared CHAT_QUALITY_FLOOR, so the caller can be honest about it
    *  rather than silently padding with weak matches. */
   belowQualityBar: boolean;
+  /** How many of `results`, counting from the front, actually cleared
+   *  CHAT_QUALITY_FLOOR — `results` is already sorted by rank (rankJobs),
+   *  so those are always the leading entries. Lets a caller split a mixed
+   *  batch into "Strong Matches" (the first `strongCount`) vs "Related
+   *  Opportunities" (the rest) instead of one blanket "these are weak"
+   *  disclaimer covering jobs that individually may not be weak at all. */
+  strongCount: number;
 }
 
 /**
@@ -53,11 +60,10 @@ export function selectChatResults(ranked: JobWithMatch[]): ChatResultSelection {
   const strong = ranked.filter((item) => (item.match?.match_score ?? 0) >= CHAT_QUALITY_FLOOR);
 
   if (strong.length >= CHAT_RESULT_FALLBACK_COUNT) {
-    return { results: strong.slice(0, CHAT_RESULT_COUNT), belowQualityBar: false };
+    const results = strong.slice(0, CHAT_RESULT_COUNT);
+    return { results, belowQualityBar: false, strongCount: results.length };
   }
 
-  return {
-    results: ranked.slice(0, Math.max(strong.length, Math.min(CHAT_RESULT_FALLBACK_COUNT, ranked.length))),
-    belowQualityBar: ranked.length > 0,
-  };
+  const results = ranked.slice(0, Math.max(strong.length, Math.min(CHAT_RESULT_FALLBACK_COUNT, ranked.length)));
+  return { results, belowQualityBar: ranked.length > 0, strongCount: Math.min(strong.length, results.length) };
 }

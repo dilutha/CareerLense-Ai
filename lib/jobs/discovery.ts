@@ -265,8 +265,13 @@ export async function discoverJobs(query: JobSearchQuery): Promise<DiscoveryResu
   // to tell "a provider genuinely found nothing" apart from "results were
   // found and then silently lost to validation/dedup/storage," which is
   // otherwise indistinguishable from the chat's eventual "no vacancies".
+  // queriesExecuted/sourcesSearched are the cost-control tracking asked for
+  // alongside the broader query expansion — visible here without exposing
+  // anything user-identifying or any query/listing text itself.
+  const queriesExecuted = results.reduce((sum, r) => sum + (r.queriesExecuted ?? 0), 0);
+  const sourcesSearched = results.filter((r) => r.status !== "configuration_required").length;
   console.log(
-    `[jobs] discovery funnel: providers=${allNormalized.length} validated=${validated.length} deduped=${deduped.length} stored=${stored.length}`
+    `[jobs] discovery funnel: sourcesSearched=${sourcesSearched} queriesExecuted=${queriesExecuted} resultsFound=${allNormalized.length} resultsAfterDedup=${deduped.length} resultsReturned=${stored.length}`
   );
   await Promise.all([
     linkCrossSourceDuplicates(stored),

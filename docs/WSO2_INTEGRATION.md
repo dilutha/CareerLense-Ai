@@ -135,6 +135,34 @@ is specifically about CareerLens's *own* Next.js server also using that
 same path for its own first-party pages, rather than only external
 consumers benefiting from it.
 
+**Defined but not wired into any real page/flow** (`lib/wso2/profile.ts`
+exports these; grepped the whole repo for callers and found none outside
+that file itself): `getSkillsViaWso2`, `getEducationViaWso2`,
+`getExperienceViaWso2`, `getProjectsViaWso2`, `updateProfileViaWso2`. The
+WSO2-capable client function exists for each, but the actual
+skills/education/experience/projects sections on `/profile` and every
+profile-editing Server Action still call `lib/career-profile/actions.ts`
+directly against Supabase, not through WSO2. Recorded here so this table
+never claims more coverage than the code actually has — wiring these up
+would be a real, separate follow-up, not something to silently assume.
+
+| Operation | WSO2? | Evidence |
+|---|---|---|
+| `GET /health` | **Yes** | `app/api/wso2-status/route.ts` → `healthCheckViaWso2` |
+| `GET /profile` (read) | **Yes** | `app/profile/page.tsx` → `getCareerProfileViaWso2OrDirect` → `getProfileViaWso2`; also `app/api/wso2-status/route.ts` |
+| `PUT /profile` (update) | No | `updateProfileViaWso2` exists, zero callers — profile edits go straight to Supabase via `lib/career-profile/actions.ts` |
+| `GET /profile/skills` | No | `getSkillsViaWso2` exists, zero callers |
+| `GET /profile/education` | No | `getEducationViaWso2` exists, zero callers |
+| `GET /profile/experience` | No | `getExperienceViaWso2` exists, zero callers |
+| `GET /profile/projects` | No | `getProjectsViaWso2` exists, zero callers |
+| Chat (`/api/chat`) | No — by design | Grepped `app/api/chat/route.ts` and `lib/ai/`: no WSO2 import anywhere. Chat talks to Gemini + Supabase directly; WSO2 fronts the CareerLens REST API layer, not third-party AI calls (§1.6 of the product spec this section answers) |
+| Job discovery (ITPro/SerpApi/company-careers) | No — by design | Grepped `lib/jobs/`: the only WSO2-adjacent text is "WSO2" as a *candidate company name* once checked as a potential career-page source (unrelated to the API gateway) |
+
+`getCareerProfileViaWso2OrDirect` now returns `{ profile, transport }` where
+`transport` is `"wso2" | "direct" | "not_configured"` — the caller (or
+anything instrumenting it later) can tell "WSO2 actually served this" from
+"fell back to direct Supabase" without re-deriving it from log lines.
+
 ## 7. Rate limiting
 
 Enforced by WSO2 itself, at the gateway — not duplicated in this
@@ -386,3 +414,81 @@ whether the `/profile` (and other user-scoped) API resources have any
 header allow-list, mediation policy, or "Pass User Context to Backend"
 setting that needs to explicitly include either `Authorization` or
 `X-Supabase-Token` to reach the backend unmodified.
+
+## 22. Re-verified in a later session — still §21's issue, not a new one
+
+Ran the exact same live `GET /health` probe again this session (throwaway
+Vitest file making a genuine network call through `callWso2`, deleted
+immediately after, credential never printed):
+
+```
+[wso2] <correlation-id> GET /health -> 401 (1291ms) category=AUTH_ERROR
+WSO2Error: Invalid Credentials
+```
+
+Identical failure mode to §21 — `900901 Invalid Credentials` at the
+gateway, not this backend. The credential currently in `.env.local` is
+still not being accepted. §21's diagnosis and recommendation (a real
+Application-issued credential, not another "Get Test Key") stand
+unchanged; nothing about this session's other work (§1.3's structured
+logging, the operation table in §6, or the new `transport` metadata on
+`getCareerProfileViaWso2OrDirect`) required or assumed a working
+credential to build correctly — they're all exercised by the header-
+forwarding/fallback logic regardless of whether the specific key is
+currently valid, and were verified structurally (code path, log output
+shape) rather than by a successful authenticated response.
+
+## 23. New credentials configured — briefly worked, then failed the same way again, AND a real, separate, more important bug found underneath
+
+`.env.local` was updated with new WSO2 credentials this session. Re-ran
+the full live diagnostic (throwaway Supabase test user, real access
+token, genuine network calls, cleaned up immediately after):
+
+1. **`GET /health` — succeeded**: `200 {"status":"healthy",...}`. The new
+   credential genuinely worked, at least briefly.
+2. **`GET /profile` through WSO2 with the real user's token — failed**:
+   `404 "No profile found for this account yet."` — a *different* failure
+   shape than any prior session (not `401 Invalid Credentials`, not the
+   old "valid Supabase access token is required" message).
+3. Investigated whether this was a WSO2 problem — **it was not**. Seeded
+   a real `profiles` row for the test user and confirmed via a direct
+   admin-client DB read that it genuinely existed, then called the exact
+   same `/api/v1/profile` route **directly over HTTP, with WSO2 completely
+   out of the loop** (`http://localhost:3011/api/v1/profile`,
+   `Authorization: Bearer <token>`) — **same 404**, proving the bug lived
+   entirely in this backend, not the gateway or the identity-propagation
+   headers.
+4. **Root cause**: `lib/career-profile/get-profile.ts#getCareerProfile`
+   always built its own client via `createServerSupabaseClient()` — the
+   cookie-session client, correct for browser page loads, but *always
+   anonymous* for a bearer-token-only API caller (no session cookie
+   exists on that kind of request at all). An anonymous client under RLS
+   returns zero rows for any user, indistinguishable from "this user
+   really has no profile." Every `/api/v1/profile*` GET route (profile,
+   skills, education, experience, projects, preferences) and
+   `/api/v1/ai/career-analysis` called `getCareerProfile(auth.userId)`
+   this way — all seven were affected, regardless of WSO2. Notably, this
+   same route's own `PUT` handler was already correct: it writes through
+   `auth.supabase` (the bearer-token-authenticated, RLS-scoped client
+   `authenticateApiRequest` already builds), just never handed that same
+   client to the GET path's read.
+5. **Fixed**: `getCareerProfile` now accepts an optional `client` param
+   (defaults to the old cookie-based behavior — zero change for the many
+   browser-session callers). All seven affected routes now pass
+   `auth.supabase`. Re-verified live: the direct (non-WSO2) call to
+   `/api/v1/profile` now returns a genuine `200` with the correct
+   profile, `id` matching the test user.
+6. **Then, independently, the WSO2 credential stopped being accepted
+   again** — re-running the exact same `/health` and `/profile` probes a
+   few minutes later returned `401 Invalid Credentials` for both,
+   consistently across a retry. This is the same short-TTL "Get Test Key"
+   pattern from §21, now observed a second time with a second credential.
+
+**Net status**: the real, independent backend bug (item 4) is fixed and
+proven via a direct HTTP round-trip. The WSO2 gateway credential itself
+is, once again, not currently valid — so the full
+`browser → WSO2 → backend → Supabase` round-trip for an authenticated
+`/profile` request could not be proven end-to-end at the moment of
+writing, purely because the credential expired mid-session. The fix in
+item 5 does not depend on WSO2 being reachable to be correct — it was
+verified with WSO2 removed from the request path entirely.

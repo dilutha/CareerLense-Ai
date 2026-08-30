@@ -121,8 +121,33 @@ describe("selectChatResults", () => {
   });
 
   it("returns nothing, honestly, when there are no results at all", () => {
-    const { results, belowQualityBar } = selectChatResults([]);
+    const { results, belowQualityBar, strongCount } = selectChatResults([]);
     expect(results).toEqual([]);
     expect(belowQualityBar).toBe(false);
+    expect(strongCount).toBe(0);
+  });
+
+  it("strongCount covers every result when the strong branch is taken", () => {
+    const items = [makeItem("a", 95, 1), makeItem("b", 88, 1), makeItem("c", 70, 1)];
+    const { results, strongCount } = selectChatResults(rankJobs(items));
+    expect(strongCount).toBe(results.length);
+  });
+
+  it("splits a mixed batch into strong (leading) vs related (trailing) via strongCount — the 'Strong Matches' / 'Related Opportunities' split", () => {
+    // 1 genuinely strong (70, clears the 60 floor) + 1 weak (40) — too few
+    // strong results to hit CHAT_RESULT_FALLBACK_COUNT alone, so the
+    // fallback pads with the weak one too, but strongCount must still
+    // say exactly 1 of them is actually strong.
+    const items = [makeItem("a", 70, 1), makeItem("b", 40, 1)];
+    const { results, belowQualityBar, strongCount } = selectChatResults(rankJobs(items));
+    expect(results.map((r) => r.job.id)).toEqual(["a", "b"]);
+    expect(belowQualityBar).toBe(true);
+    expect(strongCount).toBe(1);
+  });
+
+  it("strongCount is 0 when nothing in the fallback batch actually clears the floor", () => {
+    const items = [makeItem("a", 40, 1), makeItem("b", 30, 1)];
+    const { strongCount } = selectChatResults(items);
+    expect(strongCount).toBe(0);
   });
 });
