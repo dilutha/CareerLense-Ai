@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
 import { apiError, apiSuccess } from "@/lib/api/response";
 import { authenticateApiRequest } from "@/lib/api/auth";
+import { ensureProfileExists } from "@/lib/career-profile/ensure-profile";
 import { getCareerProfile } from "@/lib/career-profile/get-profile";
 
 /**
@@ -81,6 +82,14 @@ export const PUT = apiHandler("PUT /profile", async (request) => {
     return apiError("BAD_REQUEST", parsed.error.issues[0]?.message ?? "Invalid request body.");
   }
   const input = parsed.data;
+
+  // The `handle_new_user()` signup trigger is documented elsewhere in
+  // this project as occasionally unreliable — the existing
+  // updateBasicProfile/updateCareerPreferences Server Actions already
+  // call this defensively before writing; this route needs the same
+  // safety net now that it's becoming the real production path for the
+  // same operation (not just an external-consumer surface).
+  await ensureProfileExists(auth.userId, auth.supabase);
 
   const basicUpdate = Object.fromEntries(
     BASIC_FIELDS.filter((key) => input[key] !== undefined).map((key) => [key, input[key]])

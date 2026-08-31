@@ -8,6 +8,6 @@ export const GET = apiHandler("GET /resumes", async (request) => {
   const auth = await authenticateApiRequest(request);
   if (!auth) return apiError("UNAUTHORIZED", "A valid Supabase access token is required.");
 
-  const resumes = await getResumesForUser(auth.userId);
+  const resumes = await getResumesForUser(auth.userId, auth.supabase);
   return apiSuccess({ resumes: resumes.map(serializeResumeForApi) });
 });

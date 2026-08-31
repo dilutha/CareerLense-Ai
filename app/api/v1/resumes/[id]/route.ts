@@ -10,7 +10,7 @@ export const GET = apiHandler("GET /resumes/[id]", async (request, ctx: { params
   if (!auth) return apiError("UNAUTHORIZED", "A valid Supabase access token is required.");
 
   const { id } = await ctx.params;
-  const resume = await getResumeById(auth.userId, id);
+  const resume = await getResumeById(auth.userId, id, auth.supabase);
   if (!resume) return apiError("NOT_FOUND", "No resume found with that id.");
 
   return apiSuccess({ resume: serializeResumeForApi(resume) });

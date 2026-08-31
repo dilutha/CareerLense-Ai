@@ -21,7 +21,7 @@ export const POST = apiHandler(
     const result = await processResumeCore(auth.userId, auth.supabase, id);
     if (!result.success) return apiError("BAD_REQUEST", result.error ?? "Couldn't analyze this resume.");
 
-    const resume = await getResumeById(auth.userId, id);
+    const resume = await getResumeById(auth.userId, id, auth.supabase);
     return apiSuccess({ resume: resume ? serializeResumeForApi(resume) : null });
   }
 );

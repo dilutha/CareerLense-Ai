@@ -2,8 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { getOptionalUser } from "@/lib/auth/require-user";
+import { getAccessToken, getOptionalUser } from "@/lib/auth/require-user";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { isWso2Configured } from "@/lib/wso2/client";
+import { WSO2Error, friendlyWso2Message } from "@/lib/wso2/errors";
+import { updateProfileViaWso2, type UpdateProfileViaWso2Input } from "@/lib/wso2/profile";
 import { ensureProfileExists } from "./ensure-profile";
 import type {
   CareerPreferenceEmploymentType,
@@ -20,6 +23,34 @@ export interface ActionResult {
 async function requireUserId(): Promise<string | null> {
   const user = await getOptionalUser();
   return user?.id ?? null;
+}
+
+/**
+ * Profile writes now go through the WSO2-governed REST API
+ * (PUT /profile) when WSO2 is configured — the deliberate production
+ * path (docs/WSO2_INTEGRATION.md's "Implement the next phase" work),
+ * reusing app/api/v1/profile/route.ts's existing write logic rather than
+ * duplicating it. Falls back to the pre-existing direct-Supabase path
+ * ONLY when WSO2 isn't configured at all (local dev without WSO2 env
+ * vars, CI) — that's a deployment reality, not a governance bypass. Once
+ * WSO2 IS configured, a genuine WSO2 failure surfaces as a real error
+ * instead of silently writing directly to Supabase — per this phase's
+ * explicit instruction that a configured governed operation must not
+ * quietly bypass the gateway on failure, unlike the read-side
+ * (getCareerProfileViaWso2OrDirect) which intentionally still falls back
+ * for resilience on GETs.
+ */
+async function updateProfileViaGovernedPath(input: UpdateProfileViaWso2Input): Promise<ActionResult> {
+  const token = await getAccessToken();
+  if (!token) return { success: false, error: "Please log in again." };
+
+  try {
+    await updateProfileViaWso2(token, input);
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof WSO2Error ? friendlyWso2Message(error.category) : "Couldn't save that. Try again.";
+    return { success: false, error: message };
+  }
 }
 
 function revalidateProfile() {
@@ -69,6 +100,12 @@ export async function updateBasicProfile(
   const parsed = basicProfileSchema.safeParse(input);
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  if (isWso2Configured()) {
+    const result = await updateProfileViaGovernedPath(parsed.data);
+    if (result.success) revalidateProfile();
+    return result;
   }
 
   const supabase = await createServerSupabaseClient();
@@ -463,6 +500,12 @@ export async function updateCareerPreferences(
   const parsed = careerPreferencesSchema.safeParse(input);
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  if (isWso2Configured()) {
+    const result = await updateProfileViaGovernedPath(parsed.data);
+    if (result.success) revalidateProfile();
+    return result;
   }
 
   const supabase = await createServerSupabaseClient();

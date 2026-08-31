@@ -54,7 +54,7 @@ function isBackendErrorShape(body: unknown): body is { success: false; error: { 
   );
 }
 
-/** Safe to log: correlation id, path, method, status, latency — never the API key, the bearer token, or response bodies (which may carry PII). */
+/** Safe to log: correlation id, path, method, status, latency, which credential mode served the request — never the API key, the bearer token, or response bodies (which may carry PII). */
 function logWso2Request(input: {
   correlationId: string;
   path: string;
@@ -64,8 +64,9 @@ function logWso2Request(input: {
   category?: WSO2ErrorCategory;
 }): void {
   const outcome = input.category ? ` category=${input.category}` : "";
+  const mode = isWso2OAuth2Configured() ? "oauth2" : "legacy_test_key";
   console.log(
-    `[wso2] ${input.correlationId} ${input.method} ${input.path} -> ${input.status ?? "ERR"} (${input.durationMs}ms)${outcome}`
+    `[wso2] ${input.correlationId} ${input.method} ${input.path} -> ${input.status ?? "ERR"} (${input.durationMs}ms) mode=${mode}${outcome}`
   );
 }
 

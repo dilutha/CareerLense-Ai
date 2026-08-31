@@ -1,9 +1,9 @@
 import { CheckCircle2, AlertTriangle } from "lucide-react";
-import type { ResumeWithAnalysis } from "@/lib/resume/types";
+import type { SerializedResume } from "@/lib/wso2/resume";
 import { ResumeScore } from "./ResumeScore";
 import { ResumeSection } from "./ResumeSection";
 
-export function ResumeAnalysis({ resumeWithAnalysis }: { resumeWithAnalysis: ResumeWithAnalysis }) {
+export function ResumeAnalysis({ resumeWithAnalysis }: { resumeWithAnalysis: SerializedResume }) {
   const { resume, version, analysis } = resumeWithAnalysis;
 
   if (resume.status === "failed") {

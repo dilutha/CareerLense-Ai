@@ -2,8 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getOptionalUser } from "@/lib/auth/require-user";
+import { getAccessToken, getOptionalUser } from "@/lib/auth/require-user";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { isWso2Configured } from "@/lib/wso2/client";
+import { WSO2Error, friendlyWso2Message } from "@/lib/wso2/errors";
+import { analyzeResumeViaWso2, deleteResumeViaWso2 } from "@/lib/wso2/resume";
 import { extractResumeText, ScannedDocumentError } from "./extract-text";
 import { parseAndEvaluateResume } from "./parse-resume";
 import { buildResumeAnalysisRecord } from "./analyze-resume";
@@ -128,6 +131,22 @@ export async function uploadResume(
 export async function processResume(resumeId: string): Promise<ActionResult> {
   const userId = await requireUserId();
   if (!userId) return { success: false, error: "Please log in again." };
+
+  if (isWso2Configured()) {
+    const token = await getAccessToken();
+    if (!token) return { success: false, error: "Please log in again." };
+    try {
+      // The route runs the exact same processResumeCore server-side —
+      // its own populateProfileFromResume/analysis side effects happen
+      // there either way; only the transport changed.
+      await analyzeResumeViaWso2(token, resumeId);
+      revalidateResumeViews(resumeId);
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof WSO2Error ? friendlyWso2Message(error.category) : "Couldn't analyze that resume. Try again.";
+      return { success: false, error: message };
+    }
+  }
 
   const supabase = await createServerSupabaseClient();
   return processResumeCore(userId, supabase, resumeId);
@@ -284,6 +303,19 @@ export async function getResumeReviewSummary(
 export async function deleteResume(resumeId: string): Promise<ActionResult> {
   const userId = await requireUserId();
   if (!userId) return { success: false, error: "Please log in again." };
+
+  if (isWso2Configured()) {
+    const token = await getAccessToken();
+    if (!token) return { success: false, error: "Please log in again." };
+    try {
+      await deleteResumeViaWso2(token, resumeId);
+      revalidateResumeViews();
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof WSO2Error ? friendlyWso2Message(error.category) : "Couldn't delete that resume. Try again.";
+      return { success: false, error: message };
+    }
+  }
 
   const supabase = await createServerSupabaseClient();
   return deleteResumeCore(userId, supabase, resumeId);
