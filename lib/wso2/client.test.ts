@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetWso2TokenCacheForTests } from "./auth";
-import { callWso2, isWso2Configured } from "./client";
+import { callWso2, isRealProductionEnvironment, isWso2Configured } from "./client";
 import { WSO2Error } from "./errors";
 
 const BASE_URL = "https://gateway.example/careerlens-rest-api/v1.0";
@@ -25,6 +25,38 @@ describe("isWso2Configured", () => {
     vi.stubEnv("WSO2_API_BASE_URL", BASE_URL);
     vi.stubEnv("WSO2_API_KEY", "test-key");
     expect(isWso2Configured()).toBe(true);
+  });
+});
+
+describe("isRealProductionEnvironment", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("is false when VERCEL_ENV is unset (local dev, or any non-Vercel run)", () => {
+    vi.stubEnv("VERCEL_ENV", "");
+    expect(isRealProductionEnvironment()).toBe(false);
+  });
+
+  it("is false for a Vercel Preview deployment", () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    expect(isRealProductionEnvironment()).toBe(false);
+  });
+
+  it("is false for a Vercel Development-scoped deployment", () => {
+    vi.stubEnv("VERCEL_ENV", "development");
+    expect(isRealProductionEnvironment()).toBe(false);
+  });
+
+  it("is true only for VERCEL_ENV=production", () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    expect(isRealProductionEnvironment()).toBe(true);
+  });
+
+  it("does not fall for NODE_ENV=production alone (a local production build is not Vercel Production)", () => {
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isRealProductionEnvironment()).toBe(false);
   });
 });
 

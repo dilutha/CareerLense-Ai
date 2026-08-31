@@ -1,6 +1,6 @@
 import "server-only";
 import { getAccessToken } from "@/lib/auth/require-user";
-import { isWso2Configured } from "@/lib/wso2/client";
+import { isRealProductionEnvironment, isWso2Configured } from "@/lib/wso2/client";
 import { WSO2Error } from "@/lib/wso2/errors";
 import { getResumeViaWso2, type SerializedResume } from "@/lib/wso2/resume";
 import { getResumeById } from "./get-resumes";
@@ -11,13 +11,12 @@ import { getResumeById } from "./get-resumes";
  * is configured, app/resume/[id]/page.tsx genuinely goes
  * Browser -> Next.js -> WSO2 -> /api/v1/resumes/{id} -> Supabase.
  *
- * Unlike the write-side profile actions (which deliberately do NOT
- * fall back once WSO2 is configured — Part 29's "don't silently bypass
- * governance on a write"), this is a READ, and the existing resilience
- * precedent (getCareerProfileViaWso2OrDirect) already applies the same
- * reasoning to reads: a WSO2 outage degrading a page view to "still
- * works, without the gateway" is the right tradeoff for a GET, where
- * there's no risk of silently dropping a user-intended write.
+ * Environment-aware fallback, made consistent with the profile wrapper
+ * (this phase's "no silent bypass in production" instruction applies
+ * broadly, not only to writes): in a genuine Vercel Production
+ * deployment, a WSO2 failure throws instead of silently degrading. In
+ * local dev or a Preview deployment, the existing resilient fallback
+ * still applies.
  */
 export async function getResumeViaWso2OrDirect(
   userId: string,
@@ -35,11 +34,15 @@ export async function getResumeViaWso2OrDirect(
   try {
     return await getResumeViaWso2(accessToken, resumeId);
   } catch (error) {
-    if (error instanceof WSO2Error) {
-      console.error(`[wso2] resume fetch transport=direct (fallback reason: ${error.category} — ${error.message})`);
-    } else {
-      console.error("[wso2] resume fetch transport=direct (fallback reason:", error instanceof Error ? error.message : String(error), ")");
+    const category = error instanceof WSO2Error ? error.category : undefined;
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (isRealProductionEnvironment()) {
+      console.error(`[wso2] resume fetch FAILED in production, not falling back (reason: ${category ?? "unknown"} — ${message})`);
+      throw error;
     }
+
+    console.error(`[wso2] resume fetch transport=direct (fallback reason: ${category ?? "unknown"} — ${message})`);
     return getResumeById(userId, resumeId);
   }
 }

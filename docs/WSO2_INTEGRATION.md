@@ -881,3 +881,68 @@ routed through this path.
 None of these were silently skipped — each has a concrete reason, and
 none required inventing new WSO2 client functions that don't yet exist
 (only Profile/Resumes/AI have `lib/wso2/*` coverage right now).
+
+## 30. Debugging "production shows 0 requests" — the deployed app was actually fine
+
+Traced this from first principles rather than trusting the prior
+report's summary as proof:
+
+1. **Confirmed local `HEAD` === `origin/main`** (`git fetch` + exact
+   commit-hash comparison) — all WSO2 work genuinely pushed. Ruled out
+   "unpushed changes" immediately, contrary to what the "don't
+   commit/push" instructions from earlier phases might suggest — the
+   user evidently committed and pushed this work themselves between
+   sessions.
+2. **Authenticated directly against the live deployed site**
+   (`https://careerlense-ai.vercel.app`) — not a curl-only smoke test.
+   Built a real Supabase SSR session (via `@supabase/ssr`'s
+   `createServerClient`, the exact mechanism a real browser ends up
+   with) for a throwaway test user, then hit the ACTUAL deployed
+   `/api/wso2-status` with those cookies. Real result:
+   ```json
+   {
+     "configured": true, "status": "AUTHENTICATED",
+     "reachable": true, "authenticated": true,
+     "credentialMode": "oauth2_client_credentials",
+     "profile": { "ok": true, "found": true, "latencyMs": 1290 }
+   }
+   ```
+   This is conclusive: the deployed Vercel Production instance has the
+   latest code, has the WSO2 env vars correctly configured for
+   Production specifically, and successfully executed a real
+   `GET /health` + `GET /profile` through the real gateway — from the
+   actual production server, not from this local machine. This single
+   diagnostic call (the one your own Part 6/7 asked me to use to verify
+   this exact thing) should itself register in WSO2 Insights.
+3. **Also confirmed** `/profile` itself returns `200` with that same
+   real session, no redirect to `/login` — the page genuinely serves
+   an authenticated user.
+
+**Revised conclusion**: there was no code, deployment, or configuration
+bug. The most likely remaining explanation for zero/near-zero Insights
+before this check is simply that no real signed-in user had visited
+`/profile` yet since the WSO2 wiring went live, combined with Insights
+not having been re-checked after genuine traffic occurred. **You should
+check WSO2 Production Insights now** — this session generated real,
+legitimate diagnostic traffic against production moments ago.
+
+### Part 19 implemented — no silent bypass in real Production
+
+Added `isRealProductionEnvironment()` (`lib/wso2/client.ts`, checks
+`process.env.VERCEL_ENV === "production"` — Vercel's own precise
+environment signal, not `NODE_ENV`, which is "production" for any
+production-mode build regardless of where it runs). Both read-side
+`...OrDirect` wrappers (`getCareerProfileViaWso2OrDirect`,
+`getResumeViaWso2OrDirect`) now: fall back to direct Supabase as before
+in local dev or a Vercel Preview deployment, but in genuine Vercel
+Production, once WSO2 is configured, a failure **throws** instead of
+silently degrading. This is a deliberate availability tradeoff, made on
+direct instruction: a real WSO2 outage will now make `/profile` and
+`/resume/[id]` show an error page in production rather than quietly
+falling back — the tradeoff is that WSO2 Insights and this app's own
+`[wso2]` logs stay meaningful (nothing can silently bypass the governed
+path once configured for real production traffic) rather than resilient
+in the face of a gateway hiccup. The write-side actions
+(`updateBasicProfile`, `updateCareerPreferences`, `deleteResume`,
+`processResume`) already had this "no fallback once configured"
+behavior from the previous phase — unchanged.

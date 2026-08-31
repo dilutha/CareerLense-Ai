@@ -16,6 +16,22 @@ export function isWso2Configured(): boolean {
   return Boolean(process.env.WSO2_API_BASE_URL) && (isWso2OAuth2Configured() || Boolean(process.env.WSO2_API_KEY));
 }
 
+/**
+ * True only for a genuine Vercel Production deployment — not local dev,
+ * not a Preview deployment, not a local `next build && next start`.
+ * `VERCEL_ENV` is Vercel's own environment-scope signal (set
+ * automatically on every Vercel deployment, unlike `NODE_ENV`, which is
+ * "production" for any production-mode build regardless of where it
+ * runs). Used to decide fallback behavior: in real production, once
+ * WSO2 is configured it is the governed path and a failure must surface
+ * rather than silently degrade (docs/WSO2_INTEGRATION.md's "no silent
+ * bypass in production" phase); in local dev or a Preview deployment,
+ * the existing resilient fallback still applies.
+ */
+export function isRealProductionEnvironment(): boolean {
+  return process.env.VERCEL_ENV === "production";
+}
+
 function requireBaseUrl(correlationId: string): string {
   const baseUrl = process.env.WSO2_API_BASE_URL;
   if (!baseUrl) throw new WSO2Error("CONFIG_ERROR", "WSO2_API_BASE_URL not set.", correlationId);
