@@ -1,24 +1,37 @@
 import "server-only";
+import { getWso2AccessToken, isWso2OAuth2Configured } from "./auth";
 import { WSO2Error, type WSO2ErrorCategory } from "./errors";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_KEY_HEADER = "apikey";
 
+/**
+ * True when EITHER credential mode is usable: the production OAuth2
+ * Client Credentials flow (auth.ts — preferred, checked first by
+ * callWso2 below) or the legacy Developer Portal "Get Test Key" mode
+ * (WSO2_API_KEY). Both remain supported simultaneously so switching one
+ * env var set never breaks the other — see docs/WSO2_INTEGRATION.md §26.
+ */
 export function isWso2Configured(): boolean {
-  return Boolean(process.env.WSO2_API_BASE_URL && process.env.WSO2_API_KEY);
+  return Boolean(process.env.WSO2_API_BASE_URL) && (isWso2OAuth2Configured() || Boolean(process.env.WSO2_API_KEY));
 }
 
-function requireConfig(correlationId: string): { baseUrl: string; apiKey: string; keyHeader: string } {
+function requireBaseUrl(correlationId: string): string {
   const baseUrl = process.env.WSO2_API_BASE_URL;
+  if (!baseUrl) throw new WSO2Error("CONFIG_ERROR", "WSO2_API_BASE_URL not set.", correlationId);
+  return baseUrl;
+}
+
+function requireLegacyKeyConfig(correlationId: string): { apiKey: string; keyHeader: string } {
   const apiKey = process.env.WSO2_API_KEY;
-  if (!baseUrl || !apiKey) {
+  if (!apiKey) {
     throw new WSO2Error(
       "CONFIG_ERROR",
-      "WSO2_API_BASE_URL / WSO2_API_KEY not set.",
+      "Neither WSO2 OAuth2 credentials (WSO2_TOKEN_URL/WSO2_CONSUMER_KEY/WSO2_CONSUMER_SECRET) nor the legacy WSO2_API_KEY are set.",
       correlationId
     );
   }
-  return { baseUrl, apiKey, keyHeader: process.env.WSO2_API_KEY_HEADER?.trim() || DEFAULT_KEY_HEADER };
+  return { apiKey, keyHeader: process.env.WSO2_API_KEY_HEADER?.trim() || DEFAULT_KEY_HEADER };
 }
 
 /** WSO2's own gateway-level error shape (confirmed live: `{"error_message":"Invalid Credentials","code":"900901",...}`) — distinct from this backend's `{success:false,error:{code,message}}` envelope, so a 401 can be told apart: rejected by the gateway itself vs. rejected by /api/v1 because the forwarded user bearer token was invalid. */
@@ -81,24 +94,41 @@ export async function callWso2<T>(path: string, options: CallWso2Options = {}): 
   const method = options.method ?? "GET";
   const startedAt = Date.now();
 
-  const { baseUrl, apiKey, keyHeader } = requireConfig(correlationId);
+  const baseUrl = requireBaseUrl(correlationId);
   const url = `${baseUrl.replace(/\/$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
 
   const headers: Record<string, string> = {
-    [keyHeader]: apiKey,
     "X-Correlation-ID": correlationId,
     Accept: "application/json",
   };
-  if (options.userAccessToken) {
-    // Sent BOTH ways — live-verified this session that WSO2 does not
-    // reliably forward a client-supplied Authorization header through to
-    // the backend (docs/WSO2_INTEGRATION.md §19-20), so the same token
-    // also rides on X-Supabase-Token, which lib/api/auth.ts now accepts
-    // as an equally-trusted (independently re-verified) source. Keeping
-    // Authorization too costs nothing and keeps this working for any
-    // future WSO2 config where it turns out to pass through correctly.
-    headers.Authorization = `Bearer ${options.userAccessToken}`;
-    headers["X-Supabase-Token"] = options.userAccessToken;
+
+  if (isWso2OAuth2Configured()) {
+    // Production mode: Authorization carries the WSO2 APPLICATION
+    // identity (OAuth2 Client Credentials — see auth.ts). This is a
+    // different identity than the end user, so the user's own Supabase
+    // token can never also ride on Authorization here — it travels on
+    // X-Supabase-Token instead, exactly like the legacy-mode fallback
+    // below already does, and lib/api/auth.ts already accepts either
+    // header as an equally-trusted, independently-reverified source.
+    const appToken = await getWso2AccessToken();
+    headers.Authorization = `Bearer ${appToken}`;
+    if (options.userAccessToken) headers["X-Supabase-Token"] = options.userAccessToken;
+  } else {
+    // Legacy Developer Portal "Get Test Key" mode — unchanged from
+    // before, kept working as long as WSO2_API_KEY is set, so adding
+    // OAuth2 support never breaks whatever was already working.
+    const { apiKey, keyHeader } = requireLegacyKeyConfig(correlationId);
+    headers[keyHeader] = apiKey;
+    if (options.userAccessToken) {
+      // Sent BOTH ways — live-verified this session that WSO2 does not
+      // reliably forward a client-supplied Authorization header through to
+      // the backend (docs/WSO2_INTEGRATION.md §19-20), so the same token
+      // also rides on X-Supabase-Token. Keeping Authorization too costs
+      // nothing and keeps this working for any WSO2 config where it turns
+      // out to pass through correctly.
+      headers.Authorization = `Bearer ${options.userAccessToken}`;
+      headers["X-Supabase-Token"] = options.userAccessToken;
+    }
   }
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
 

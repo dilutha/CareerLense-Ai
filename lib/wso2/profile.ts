@@ -112,6 +112,16 @@ export async function getProjectsViaWso2(userAccessToken: string): Promise<Proje
   return result.projects;
 }
 
+/** Closes a real gap found this session: `/profile/preferences` is defined in docs/openapi.yaml and already implemented at app/api/v1/profile/preferences/route.ts, but had no WSO2 client function at all. */
+export async function getPreferencesViaWso2(userAccessToken: string): Promise<CareerPreferences | null> {
+  const result = await callWso2<Wso2SuccessEnvelope & { preferences: CareerPreferences | null }>("/profile/preferences", {
+    method: "GET",
+    userAccessToken,
+    retryOnFailure: true,
+  });
+  return result.preferences;
+}
+
 // Re-exported so callers only need to import from lib/wso2/profile.ts, not
 // also lib/career-profile/types.ts, for the types these functions return.
 export type { CareerPreferences, CareerProfile, Education, Experience, Profile, ProfileSkillWithSkill, Project };

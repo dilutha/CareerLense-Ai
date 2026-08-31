@@ -264,7 +264,9 @@ async function runGuestAgentTurn(
 
   if (!shouldExtractStateUpdate(userText, currentState)) return noOp;
 
+  const extractStartedAt = Date.now();
   const update = await extractStateUpdate(userText, currentState, null);
+  console.log(`[chat] timing: guest state-extraction ${Date.now() - extractStartedAt}ms`);
   if (!update) return noOp;
 
   let state = mergeAgentState(currentState, update);
@@ -282,7 +284,9 @@ async function runGuestAgentTurn(
   if (canSearch && searchRelevant) {
     toolStatus = "searching_jobs";
     const criteria = buildSearchCriteria(state, 20);
+    const searchStartedAt = Date.now();
     const response = await searchJobsForGuest(criteria, candidate);
+    console.log(`[chat] timing: guest job search ${Date.now() - searchStartedAt}ms`);
     const excludeIds = update.wantsMoreResults ? currentState.lastResultJobIds : [];
     const filtered = applyConversationalFilters(response.results, state, excludeIds);
     const { results, belowQualityBar, strongCount } = selectChatResults(filtered);
@@ -365,7 +369,20 @@ async function maybeCreateReminder(userText: string, applications: ApplicationWi
   return `A ${reminderKind === "interview" ? "interview" : "follow-up"} reminder was just successfully created for the user's ${company} application. Acknowledge this warmly and briefly (matching CareerLens's usual tone) — don't ask for the date again, it's already set.`;
 }
 
+/**
+ * Safe timing-only diagnostics (Part 5 of the latency-optimization task) —
+ * a correlation id plus elapsed milliseconds at each checkpoint, nothing
+ * else: never a prompt, a response, a token, or any user data. Mirrors
+ * the existing `[wso2] <id> ...` log convention.
+ */
+function logChatTiming(correlationId: string, checkpoint: string, startedAt: number): void {
+  console.log(`[chat] ${correlationId} ${checkpoint} ${Date.now() - startedAt}ms`);
+}
+
 export async function POST(request: Request) {
+  const correlationId = crypto.randomUUID();
+  const requestStartedAt = Date.now();
+
   let body: unknown;
   try {
     body = await request.json();
@@ -392,6 +409,7 @@ export async function POST(request: Request) {
   const supabase = await createServerSupabaseClient();
   const { data: authData } = await supabase.auth.getClaims();
   const userId = authData?.claims?.sub;
+  logChatTiming(correlationId, "auth", requestStartedAt);
 
   const lastUserMessageForPersist = messages[messages.length - 1];
   const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
@@ -404,6 +422,13 @@ export async function POST(request: Request) {
   let applicationsContext: string | undefined;
   let reminderContext: string | undefined;
   let turnOutcome: CareerAgentTurnOutcome;
+  // Persisting the NEW agent state (for the *next* turn to read) doesn't
+  // gate anything about THIS turn's Gemini response, so it's kicked off
+  // without blocking the critical path and only awaited once, alongside
+  // the other end-of-stream persistence below — it runs concurrently with
+  // the (typically much slower) AI call instead of adding its own
+  // round-trip in front of it.
+  let pendingAgentStateSave: Promise<void> = Promise.resolve();
 
   if (userId) {
     authenticatedUserId = userId;
@@ -422,20 +447,23 @@ export async function POST(request: Request) {
       // user's chats).
       return NextResponse.json({ error: "That conversation isn't available." }, { status: 403 });
     }
-    if (conversationId) {
-      await saveMessage(supabase, {
-        conversationId,
-        userId,
-        role: "user",
-        content: lastUserMessageForPersist.content,
-      });
-    }
-
-    const [careerProfile, resumeCtx, readinessSnapshot, applications] = await Promise.all([
+    // These five are independent of each other — separate tables/rows,
+    // no ordering dependency within a single turn (the agent-turn pipeline
+    // below is what actually needs their results, not each other). This
+    // used to be three sequential round-trips (save the user's message ->
+    // [profile/resume/readiness/applications] -> agent state); collapsing
+    // them into one batch removes a full extra round-trip's latency from
+    // every authenticated chat turn — a real, structural fix, not a
+    // speed/quality tradeoff (Part 5's "parallelize independent work").
+    const [, careerProfile, resumeCtx, readinessSnapshot, applications, currentAgentState] = await Promise.all([
+      conversationId
+        ? saveMessage(supabase, { conversationId, userId, role: "user", content: lastUserMessageForPersist.content })
+        : Promise.resolve(undefined),
       getCareerProfile(userId),
       buildResumeContext(userId),
       getCareerReadinessSnapshot(userId),
       getApplicationsForUser(userId),
+      conversationId ? getAgentState(supabase, userId, conversationId) : Promise.resolve(emptyAgentState()),
     ]);
     careerContext = careerProfile ? buildCareerContext(careerProfile) : undefined;
     resumeContext = resumeCtx;
@@ -455,8 +483,8 @@ export async function POST(request: Request) {
       new Map(applications.filter((a) => a.match).map((a) => [a.job.id, a.match!]))
     );
     applicationsContext = buildApplicationsContext(applicationStats, analyticsSummary) ?? undefined;
+    logChatTiming(correlationId, "context-batch", requestStartedAt);
 
-    const currentAgentState = conversationId ? await getAgentState(supabase, userId, conversationId) : emptyAgentState();
     const [outcome, reminder] = await Promise.all([
       lastUserMessage
         ? runCareerAgentTurn(userId, lastUserMessage.content, currentAgentState, careerContext)
@@ -472,9 +500,10 @@ export async function POST(request: Request) {
     ]);
     turnOutcome = outcome;
     reminderContext = reminder;
+    logChatTiming(correlationId, "agent-turn", requestStartedAt);
 
     if (conversationId && turnOutcome.stateChanged) {
-      await saveAgentState(supabase, userId, conversationId, turnOutcome.state);
+      pendingAgentStateSave = saveAgentState(supabase, userId, conversationId, turnOutcome.state);
     }
   } else {
     const currentState = parseGuestAgentState(body);
@@ -520,6 +549,7 @@ export async function POST(request: Request) {
       { status: 502 }
     );
   }
+  logChatTiming(correlationId, "ai-first-token", requestStartedAt);
 
   const encoder = new TextEncoder();
 
@@ -562,32 +592,31 @@ export async function POST(request: Request) {
           });
         }
       } finally {
+        // Persist whatever the assistant actually produced, even if the
+        // stream was interrupted partway — discarding a partial reply
+        // the user already saw would make a reloaded conversation lie
+        // about what happened. Jobs are their own message row (mirrors
+        // the client's own two-message-row rendering: a jobs card
+        // message, then the text reply that follows it). Guests never
+        // reach here (conversationId is always null for them). These two
+        // rows are independent of each other AND of the pending agent-
+        // state save kicked off earlier — run together rather than one
+        // after another; none of this is visible to the user (the stream
+        // already closed their view of the response), so it doesn't
+        // delay what they see, but it does delay this request's own
+        // completion, which the `total` timing below still reflects.
         if (conversationId && authenticatedUserId) {
-          // Persist whatever the assistant actually produced, even if the
-          // stream was interrupted partway — discarding a partial reply
-          // the user already saw would make a reloaded conversation lie
-          // about what happened. Jobs are their own message row (mirrors
-          // the client's own two-message-row rendering: a jobs card
-          // message, then the text reply that follows it). Guests never
-          // reach here (conversationId is always null for them).
-          if (jobResults.length > 0) {
-            await saveMessage(supabase, {
-              conversationId,
-              userId: authenticatedUserId,
-              role: "assistant",
-              content: "",
-              jobResults,
-            });
-          }
-          if (assistantText) {
-            await saveMessage(supabase, {
-              conversationId,
-              userId: authenticatedUserId,
-              role: "assistant",
-              content: assistantText,
-            });
-          }
+          await Promise.all([
+            jobResults.length > 0
+              ? saveMessage(supabase, { conversationId, userId: authenticatedUserId, role: "assistant", content: "", jobResults })
+              : Promise.resolve(),
+            assistantText
+              ? saveMessage(supabase, { conversationId, userId: authenticatedUserId, role: "assistant", content: assistantText })
+              : Promise.resolve(),
+            pendingAgentStateSave,
+          ]);
         }
+        logChatTiming(correlationId, "total", requestStartedAt);
         controller.close();
       }
     },

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAccessToken, requireUser } from "@/lib/auth/require-user";
+import { isWso2OAuth2Configured } from "@/lib/wso2/auth";
 import { isWso2Configured } from "@/lib/wso2/client";
 import { WSO2Error } from "@/lib/wso2/errors";
 import { getProfileViaWso2, healthCheckViaWso2 } from "@/lib/wso2/profile";
@@ -21,6 +22,7 @@ export async function GET() {
   if (!isWso2Configured()) {
     return NextResponse.json({
       configured: false,
+      status: "NOT_CONFIGURED",
       message: "WSO2_API_BASE_URL / WSO2_API_KEY are not set — calls fall back to direct Supabase.",
     });
   }
@@ -70,11 +72,24 @@ export async function GET() {
   const reachable = health.ok || !unreachableCategories.has(health.category ?? "");
   const authenticated = health.ok;
 
+  // A single named state alongside the booleans above — same underlying
+  // signal, just spelled out for a caller that wants one field to branch
+  // on instead of re-deriving the same logic. AUTHENTICATED only means
+  // the WSO2 API-key layer is valid (the health check needs no user
+  // token); it does NOT by itself mean a specific user's /profile call
+  // succeeded through the gateway — that's profile.ok, checked separately
+  // (UPSTREAM_ERROR covers "gateway + WSO2 key are fine, but the
+  // downstream /profile call still failed").
+  const status: "NOT_CONFIGURED" | "GATEWAY_UNREACHABLE" | "GATEWAY_AUTH_FAILED" | "AUTHENTICATED" | "UPSTREAM_ERROR" =
+    !reachable ? "GATEWAY_UNREACHABLE" : !authenticated ? "GATEWAY_AUTH_FAILED" : profile.ok ? "AUTHENTICATED" : "UPSTREAM_ERROR";
+
   return NextResponse.json({
     configured: true,
+    status,
     reachable,
     authenticated, // the WSO2 API-key layer only — see profile.ok for whether the end-user's own token round-trips through the gateway too
     gateway: reachable ? "wso2" : "unreachable",
+    credentialMode: isWso2OAuth2Configured() ? "oauth2_client_credentials" : "legacy_test_key",
     apiVersion: "v1.0",
     health: { ...health, latencyMs: healthLatencyMs },
     profile: { ...profile, latencyMs: profileLatencyMs },

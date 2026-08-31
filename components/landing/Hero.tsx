@@ -15,7 +15,7 @@ export function Hero({ isAuthenticated }: { isAuthenticated: boolean }) {
           className="flex flex-1 flex-col items-center gap-5 text-center lg:items-start lg:text-left"
         >
           <h1 className="max-w-xl text-4xl font-semibold tracking-tight text-navy sm:text-5xl md:text-6xl">
-            Ado, job ekak hoyamu. 🌊
+            Let&apos;s Find Job 🌊
           </h1>
           <p className="max-w-lg text-balance text-lg text-navy-light/80">
             Your friendly AI career buddy for finding jobs, improving your CV

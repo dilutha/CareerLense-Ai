@@ -118,10 +118,47 @@ async function linkCrossSourceDuplicates(jobs: Job[]): Promise<void> {
 }
 
 /**
+ * How many Gemini analysis calls run at once, at most. A real bottleneck
+ * found live this session: this used to fire one Promise.all across the
+ * ENTIRE unanalyzed batch (up to MAX_RANKED_RESULTS jobs), which for a
+ * single search with ~24 newly-discovered jobs meant 24 simultaneous
+ * Gemini requests — self-inflicted rate-limit pressure (observed live as
+ * real `503 UNAVAILABLE "currently experiencing high demand"` responses)
+ * that made the whole chat response wait on the slowest of a large,
+ * uncontrolled burst. Chat search still WAITS for analysis to finish
+ * (job_skills feeds match scoring's 35% skills weight — making this
+ * non-blocking would silently under-score brand-new jobs on their first
+ * appearance, a real quality regression this fix deliberately avoids),
+ * but now bounded and time-boxed instead of an unbounded burst.
+ */
+const ANALYSIS_CONCURRENCY_LIMIT = 5;
+/**
+ * One slow/stuck Gemini call must never hold up the rest of the batch —
+ * resolves to null (== "couldn't analyze this one"), same as analyzeJob's
+ * own failure contract. Live-measured this session: with the batches
+ * above and Gemini under heavy load, analysis alone added ~24s to one
+ * real chat response (3 sequential batches essentially all hitting the
+ * old 8s cap). 5s still comfortably covers a normal-latency call —
+ * this only bounds the worst case tighter, at the cost of slightly more
+ * jobs missing skill data on their FIRST appearance during a genuinely
+ * slow Gemini window (self-heals: the next search for the same job finds
+ * it already analyzed, since content_hash prevents re-insertion).
+ */
+const ANALYSIS_TIMEOUT_MS = 5_000;
+
+async function analyzeJobWithTimeout(job: Job) {
+  return Promise.race([
+    analyzeJob(job),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ANALYSIS_TIMEOUT_MS)),
+  ]);
+}
+
+/**
  * Ensures every given job has cached skill analysis, calling Gemini only
  * for jobs that don't already have job_skills rows (content_hash-based
  * upsert means the same listing is never re-inserted, so this naturally
- * avoids re-analyzing unchanged jobs across searches).
+ * avoids re-analyzing unchanged jobs across searches). Runs in bounded
+ * batches (ANALYSIS_CONCURRENCY_LIMIT at a time), not one unbounded burst.
  */
 async function ensureJobsAnalyzed(jobs: Job[]): Promise<void> {
   if (jobs.length === 0) return;
@@ -135,31 +172,34 @@ async function ensureJobsAnalyzed(jobs: Job[]): Promise<void> {
   const analyzedJobIds = new Set((existing ?? []).map((row) => (row as { job_id: string }).job_id));
   const unanalyzed = jobs.filter((job) => !analyzedJobIds.has(job.id));
 
-  await Promise.all(
-    unanalyzed.map(async (job) => {
-      const analysis = await analyzeJob(job);
-      if (!analysis) return;
+  for (let i = 0; i < unanalyzed.length; i += ANALYSIS_CONCURRENCY_LIMIT) {
+    const batch = unanalyzed.slice(i, i + ANALYSIS_CONCURRENCY_LIMIT);
+    await Promise.all(
+      batch.map(async (job) => {
+        const analysis = await analyzeJobWithTimeout(job);
+        if (!analysis) return;
 
-      const skillRows = analysis.skills.map((skill) => ({
-        job_id: job.id,
-        skill_name: skill.name,
-        skill_type: skill.type,
-        importance: skill.importance,
-      }));
+        const skillRows = analysis.skills.map((skill) => ({
+          job_id: job.id,
+          skill_name: skill.name,
+          skill_type: skill.type,
+          importance: skill.importance,
+        }));
 
-      if (skillRows.length > 0) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (admin.from("job_skills") as any).insert(skillRows);
-      }
+        if (skillRows.length > 0) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (admin.from("job_skills") as any).insert(skillRows);
+        }
 
-      if (analysis.experienceLevel) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (admin.from("jobs") as any)
-          .update({ normalized_data: { ...(job.normalized_data ?? {}), analysis } })
-          .eq("id", job.id);
-      }
-    })
-  );
+        if (analysis.experienceLevel) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (admin.from("jobs") as any)
+            .update({ normalized_data: { ...(job.normalized_data ?? {}), analysis } })
+            .eq("id", job.id);
+        }
+      })
+    );
+  }
 }
 
 async function runProvider(
@@ -250,9 +290,11 @@ async function recordSourceRuns(
  * partial-result transparency.
  */
 export async function discoverJobs(query: JobSearchQuery): Promise<DiscoveryResult> {
+  const timingStartedAt = Date.now();
   const startedAt = new Date().toISOString();
   const providers = getActiveProviders();
   const results = await Promise.all(providers.map((provider) => runProvider(provider, query)));
+  console.log(`[jobs] timing: providers ${Date.now() - timingStartedAt}ms`);
 
   const allNormalized = results.flatMap((r) => r.jobs);
   const validated = allNormalized
@@ -273,11 +315,13 @@ export async function discoverJobs(query: JobSearchQuery): Promise<DiscoveryResu
   console.log(
     `[jobs] discovery funnel: sourcesSearched=${sourcesSearched} queriesExecuted=${queriesExecuted} resultsFound=${allNormalized.length} resultsAfterDedup=${deduped.length} resultsReturned=${stored.length}`
   );
+  console.log(`[jobs] timing: normalize+dedup+upsert ${Date.now() - timingStartedAt}ms`);
   await Promise.all([
     linkCrossSourceDuplicates(stored),
     ensureJobsAnalyzed(stored),
     recordSourceRuns(providers, results, new Set(stored.map((j) => j.content_hash)), startedAt),
   ]);
+  console.log(`[jobs] timing: total discoverJobs ${Date.now() - timingStartedAt}ms (analysis is usually the gap vs the line above)`);
 
   const providerStatus: ProviderStatusEntry[] = providers.map((provider, i) => ({
     provider: provider.name,

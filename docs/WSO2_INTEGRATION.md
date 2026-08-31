@@ -492,3 +492,180 @@ is, once again, not currently valid — so the full
 writing, purely because the credential expired mid-session. The fix in
 item 5 does not depend on WSO2 being reachable to be correct — it was
 verified with WSO2 removed from the request path entirely.
+
+## 24. Full verification matrix — identity isolation proven, gateway credential still invalid, and a discrepancy worth flagging
+
+Ran a complete matrix (two throwaway Supabase users, real tokens, real
+HTTP requests, cleaned up immediately after — see the project's
+established live-check methodology):
+
+| Test | What | Result |
+|---|---|---|
+| A | Direct `/api/v1/profile`, User A's real token | `200`, User A's own profile — correct |
+| A2 | Direct `/api/v1/profile`, User B's real token | `200`, User B's own profile, **zero leakage of A's data** |
+| E | WSO2 `/health`, no user token | `401 Invalid Credentials` (gateway-level) |
+| B | WSO2 `/profile`, User A's real token | `401 Invalid Credentials` — never reached the backend, rejected at the gateway |
+| C | WSO2 `/profile`, garbage Supabase token | `401 Invalid Credentials` — confounded by D below, inconclusive on its own |
+| D | WSO2 `/health`, deliberately-garbage WSO2 key | `401 Invalid Credentials` — **identical error to the "real" configured key** |
+
+**Tests A/A2 are the important, durable result**: the identity/RLS fix
+from §23 is proven correct, including cross-user isolation (User B's
+token can never see User A's data) — this is independent of WSO2 and
+does not degrade if the gateway credential expires again.
+
+**Tests B/D together are the important gateway finding**: the
+"real" `WSO2_API_KEY` currently in `.env.local` produces the exact same
+`900901 Invalid Credentials` response as an intentionally-invalid
+placeholder string. That is strong evidence the configured credential
+is not currently being accepted by WSO2 at all right now — not a
+header-forwarding problem, not a backend problem.
+
+**A discrepancy worth flagging directly**: this contradicts a claim that
+the WSO2 Developer Portal's own "Try it out" for `GET /health` currently
+shows a live `200`. Both can be true at once if the Portal's "Try it
+out" panel generates and uses its **own** short-lived test token at
+click-time, separate from whatever string was copied into `.env.local`
+— this is standard behavior for WSO2 API Manager/Bijira's "Get Test Key"
+flow (see §21/§23: a `WSO2_API_KEY` value 1598 characters long is far
+too long to be a simple opaque API key — that length is consistent with
+a signed JWT access token, which is exactly what "Get Test Key" issues,
+and exactly the kind of credential that carries a short expiry by
+design). **Recommendation**: don't trust the Portal's own "Try it out"
+result as proof that `.env.local`'s value works — copy the token
+straight from the Portal into `.env.local` immediately before testing,
+or (better, permanently) switch to an Application-based production
+credential that doesn't expire on this short a cycle. I cannot access
+the WSO2 Portal directly to generate or verify one myself.
+
+## 25. Manual WSO2 Portal steps — best-effort, not verified against your live portal session
+
+I do not have browser/portal access, so the following is standard
+WSO2 API Manager / Bijira terminology from general product knowledge,
+**not confirmed against your specific tenant's current UI** — the exact
+labels can vary by WSO2 version/plan. Verify each step actually exists
+before relying on it; if a step doesn't match what you see, that's more
+reliable than this document.
+
+1. **Open the Developer Portal** for the CareerLens API (the same portal
+   where "Get Test Key" was used before).
+2. **Applications** (usually a top-level nav item, sometimes under your
+   account menu) → open or create an Application (e.g. "CareerLens
+   Production") — this is distinct from a per-session test key; an
+   Application persists and can be reused.
+3. Inside the Application, find **Subscriptions** (or "APIs") and
+   subscribe the CareerLens REST API (`careerlens-rest-api`, v1.0) to
+   this Application, on a production-appropriate tier if tiers are
+   offered.
+4. Find **Production Keys** (sometimes under "Credentials" or "OAuth2
+   Keys") for that Application and **generate** a production key/token —
+   this is the credential meant to be long-lived/renewable, as opposed
+   to "Get Test Key"'s short-TTL convenience token.
+5. **THIS CANNOT BE CONFIRMED FROM HERE**: whether that generated
+   credential is a static API key (paste once, use indefinitely) or an
+   OAuth2 client-credentials pair (client id + secret, requiring this
+   app to exchange them for a short-lived access token and refresh it
+   server-side before each expiry) depends entirely on how this specific
+   API was published in WSO2. If it's the latter, `lib/wso2/client.ts`
+   would need a small, genuinely new piece: a server-side token
+   cache+refresh function that runs before `callWso2` sends the request,
+   never on every single call. I have not built this speculatively — it
+   depends on what the portal actually offers, which I cannot see.
+6. Copy the resulting credential into `.env.local`'s `WSO2_API_KEY`
+   (and confirm `WSO2_API_KEY_HEADER` still matches whatever header name
+   this credential type expects — that may differ from the test-key
+   header).
+7. **Test immediately** with the app's own diagnostic
+   (`GET /api/wso2-status`, signed in) rather than the Portal's own "Try
+   it out" — the Portal's own test may use a different token than the
+   one now in `.env.local` (see §24). A successful result looks like
+   `status: "AUTHENTICATED"` and `profile.ok: true` with your own real
+   profile data.
+
+## 26. FULLY VERIFIED — OAuth2 Client Credentials, live, end-to-end, proven
+
+`.env.local` was updated with real OAuth2 Client Credentials
+(`WSO2_TOKEN_URL`, `WSO2_CONSUMER_KEY`, `WSO2_CONSUMER_SECRET`), replacing
+the short-lived "Get Test Key" flow that kept expiring (§21/§23/§24).
+
+### Architecture
+
+There are **two distinct identities**, never conflated:
+
+```
+CareerLens user (Supabase login)
+        │
+        │  Supabase access token (JWT)
+        ▼
+Next.js server ── lib/auth/require-user.ts#getAccessToken()
+        │
+        │  1. Application identity: WSO2_CONSUMER_KEY + WSO2_CONSUMER_SECRET
+        │     → POST WSO2_TOKEN_URL (RFC 6749 Client Credentials grant)
+        │     → lib/wso2/auth.ts#getWso2AccessToken() (cached, auto-refreshed)
+        │     → Authorization: Bearer <WSO2 application access token>
+        │
+        │  2. User identity: the SAME Supabase JWT from step 0
+        │     → X-Supabase-Token: <Supabase user JWT>
+        ▼
+WSO2 API Gateway (validates the application token)
+        │
+        │  forwards X-Supabase-Token through untouched
+        ▼
+CareerLens REST API (/api/v1/profile) ── lib/api/auth.ts#authenticateApiRequest
+        │
+        │  independently re-verifies the JWT against Supabase itself —
+        │  WSO2's acceptance of the application is a SEPARATE, unrelated
+        │  check from this
+        ▼
+auth.supabase (bearer-token-authenticated, RLS-scoped client)
+        │
+        ▼
+Supabase → the correct, specific user's profile row
+```
+
+`Authorization` carries the WSO2 **application** token. `X-Supabase-Token`
+carries the **user** token. They are never merged, never confused, and
+`lib/api/auth.ts` was not changed to make this work — it already accepted
+`X-Supabase-Token` as an equally-trusted, independently-reverified source
+from the earlier header-forwarding investigation (§19-20).
+
+### Live verification — every acceptance criterion, real network calls, no mocks
+
+| Test | Result |
+|---|---|
+| OAuth2 token obtained from `WSO2_TOKEN_URL` | ✅ Real token, RFC 6749 Basic-auth client-credentials grant |
+| `GET /health` through WSO2 with the OAuth2 token | ✅ `200 healthy` |
+| Invalid WSO2 consumer secret | ✅ Rejected (`401 AUTH_ERROR`) before any API call is attempted |
+| Direct `/api/v1/profile`, real user token, WSO2 bypassed | ✅ `200`, correct user's own profile |
+| **`GET /profile` through WSO2, OAuth2 app token + real Supabase user token** | ✅ **`200`, the exact correct user's profile — the full chain, proven** |
+| User B's token through WSO2 | ✅ `200`, User B's own profile, zero leakage of User A's data |
+| WSO2 `/profile`, valid app token, **no** user token | ✅ `401 UPSTREAM_UNAUTHORIZED` (correctly rejected — app-only traffic isn't user traffic) |
+| WSO2 `/profile`, valid app token, **invalid** user token | ✅ `401 UPSTREAM_UNAUTHORIZED` (correctly rejected — WSO2 accepted the app, backend independently rejected the bad user token) |
+
+Every credential/user in this table was throwaway (created and deleted
+via the admin client within the same test run) or an intentionally-broken
+value substituted temporarily and restored immediately after. No secret
+value was ever printed, logged, or written to this document.
+
+### Credential lifecycle
+
+`lib/wso2/auth.ts#getWso2AccessToken()` caches the token in-memory
+(module-level, server-side only), refreshes automatically ~30 seconds
+before the real `expires_in` elapses, and de-duplicates concurrent
+callers into one in-flight token request rather than firing a token
+request per API call. The legacy `WSO2_API_KEY` path (§4 onward) remains
+fully intact and untouched — `callWso2` picks OAuth2 mode automatically
+whenever all three OAuth2 variables are set, and only falls back to the
+legacy header mode when they aren't, so nothing that worked before this
+change can regress.
+
+### Fallback behavior — reviewed, kept, still honestly labeled
+
+`getCareerProfileViaWso2OrDirect()` still falls back to direct Supabase
+on any WSO2 failure — this is a deliberate resilience choice, not a
+security weakening: `transport: "wso2" | "direct" | "not_configured"` on
+the return value means a caller can always tell which path actually
+served the request, and nothing in the UI or logs claims "wso2" for a
+request that silently fell back. Given WSO2 is now proven to work
+end-to-end with real credentials, direct fallback should now be rare in
+practice — but keeping it means a future credential expiry degrades to
+"still works, without the gateway" rather than an outage.
