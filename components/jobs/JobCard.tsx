@@ -66,8 +66,9 @@ export function JobCard({
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="flex flex-col gap-3 rounded-2xl border border-navy/10 bg-white p-5 shadow-sm"
+      whileHover={{ y: -2, borderColor: "rgba(15,23,42,0.16)" }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
+      className="flex flex-col gap-3 rounded-2xl border border-navy/10 bg-white p-5 shadow-sm transition-shadow duration-200 hover:shadow-md"
     >
       <div className="flex items-start justify-between gap-3">
         <div>

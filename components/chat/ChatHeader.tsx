@@ -1,6 +1,7 @@
 "use client";
 
 import type { RefObject } from "react";
+import Link from "next/link";
 import { Menu, Plus } from "lucide-react";
 
 export function ChatHeader({
@@ -25,9 +26,12 @@ export function ChatHeader({
       </button>
 
       <div className="flex flex-col items-center lg:items-start">
-        <span className="flex items-center gap-1.5 text-sm font-semibold text-navy">
+        <Link
+          href="/"
+          className="flex items-center gap-1.5 rounded text-sm font-semibold text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean focus-visible:ring-offset-2"
+        >
           CareerLens <span aria-hidden="true">🌊</span>
-        </span>
+        </Link>
         <span className="flex items-center gap-1.5 text-xs text-navy-light/60">
           <span
             className="h-1.5 w-1.5 rounded-full bg-emerald-500"

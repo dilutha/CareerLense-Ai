@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { MagneticButton } from "./MagneticButton";
 import { RobotHero } from "./robot/RobotHero";
 
 export function Hero({ isAuthenticated }: { isAuthenticated: boolean }) {
@@ -22,12 +23,14 @@ export function Hero({ isAuthenticated }: { isAuthenticated: boolean }) {
             and getting interview-ready.
           </p>
 
-          <Link
-            href="/chat"
-            className="mt-2 inline-flex items-center gap-2 rounded-full bg-sea-gradient px-7 py-3.5 text-base font-semibold text-white shadow-lg shadow-ocean/25 transition-transform hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean focus-visible:ring-offset-2"
-          >
-            Let&apos;s Talk →
-          </Link>
+          <MagneticButton>
+            <Link
+              href="/chat"
+              className="mt-2 inline-flex items-center gap-2 rounded-full bg-sea-gradient px-7 py-3.5 text-base font-semibold text-white shadow-lg shadow-ocean/25 transition-transform hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean focus-visible:ring-offset-2"
+            >
+              Let&apos;s Talk →
+            </Link>
+          </MagneticButton>
 
           {!isAuthenticated && (
             <p className="text-sm text-navy-light/60">
