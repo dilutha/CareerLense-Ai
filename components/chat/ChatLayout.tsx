@@ -10,8 +10,21 @@ import type { GuestCandidate } from "./GuestCvUpload";
 import { ChatSidebar } from "./ChatSidebar";
 import { ChatWindow } from "./ChatWindow";
 
+// A stable, module-level reference — NOT an inline `= []` default in the
+// destructuring signature below. That would create a genuinely new array
+// instance on every single render whenever the caller omits `conversations`
+// (exactly guest mode's `<ChatLayout guest />`, which never passes it —
+// see app/chat/page.tsx). The render-time state-sync a few lines down
+// compares `initialConversations !== seenConversations` by reference; a
+// fresh `[]` every render made that comparison ALWAYS true, calling
+// setState on every render, which triggered another render, forever —
+// "Too many re-renders", live-caught this session via real browser
+// testing (this crashed the entire guest chat experience, silently, in
+// every previous session — no unit test exercises this render path).
+const EMPTY_CONVERSATIONS: ConversationRow[] = [];
+
 export function ChatLayout({
-  conversations: initialConversations = [],
+  conversations: initialConversations = EMPTY_CONVERSATIONS,
   conversationsFailed = false,
   activeConversationId = null,
   initialMessages = [],

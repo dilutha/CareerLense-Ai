@@ -1,12 +1,14 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Waves } from "lucide-react";
 import type { ChatMessage } from "@/lib/ai/types";
 
-export function AssistantMessage({ message }: { message: ChatMessage }) {
+/** Memoized — markdown re-parsing is the most expensive part of a message render; this skips it entirely for every already-completed assistant message while a newer one is still streaming (that one's own content prop keeps changing, so it still re-renders correctly on each token). */
+export const AssistantMessage = memo(function AssistantMessage({ message }: { message: ChatMessage }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -25,4 +27,4 @@ export function AssistantMessage({ message }: { message: ChatMessage }) {
       </div>
     </motion.div>
   );
-}
+});

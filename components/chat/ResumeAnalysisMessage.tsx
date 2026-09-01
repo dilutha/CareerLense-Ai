@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
 import { ScanSearch, Waves } from "lucide-react";
 import type { ChecklistCard } from "@/lib/ai/types";
@@ -9,7 +10,7 @@ import type { ChecklistCard } from "@/lib/ai/types";
  * will extend this to render real resume analysis scores once resume
  * processing is implemented.
  */
-export function ResumeAnalysisMessage({ card }: { card: ChecklistCard }) {
+export const ResumeAnalysisMessage = memo(function ResumeAnalysisMessage({ card }: { card: ChecklistCard }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -42,4 +43,4 @@ export function ResumeAnalysisMessage({ card }: { card: ChecklistCard }) {
       </div>
     </motion.div>
   );
-}
+});

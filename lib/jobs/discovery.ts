@@ -315,13 +315,28 @@ export async function discoverJobs(query: JobSearchQuery): Promise<DiscoveryResu
   console.log(
     `[jobs] discovery funnel: sourcesSearched=${sourcesSearched} queriesExecuted=${queriesExecuted} resultsFound=${allNormalized.length} resultsAfterDedup=${deduped.length} resultsReturned=${stored.length}`
   );
-  console.log(`[jobs] timing: normalize+dedup+upsert ${Date.now() - timingStartedAt}ms`);
   await Promise.all([
     linkCrossSourceDuplicates(stored),
-    ensureJobsAnalyzed(stored),
     recordSourceRuns(providers, results, new Set(stored.map((j) => j.content_hash)), startedAt),
   ]);
-  console.log(`[jobs] timing: total discoverJobs ${Date.now() - timingStartedAt}ms (analysis is usually the gap vs the line above)`);
+  console.log(`[jobs] timing: total discoverJobs ${Date.now() - timingStartedAt}ms`);
+
+  // Deliberately NOT awaited — live-measured this session: skill analysis
+  // (one Gemini call per newly-discovered, not-yet-analyzed job) was the
+  // single largest cost in the whole chat job-search path, ~10s+ on a
+  // fresh search. It's the exact "non-critical persistence that
+  // shouldn't block the first AI token" case: computeJobMatch already
+  // degrades gracefully when job_skills has no rows yet (scoreSkills
+  // returns a neutral 100 rather than penalizing — see match.ts), so a
+  // brand-new job's very first appearance ranks on role/location/
+  // experience alone and gets full skill-aware scoring on its next
+  // appearance, once this finishes in the background. Errors inside
+  // ensureJobsAnalyzed are already handled per-job (analyzeJob returns
+  // null on failure, see analyze-job.ts) so this has nothing further to
+  // catch here beyond not letting a rejection become unhandled.
+  ensureJobsAnalyzed(stored).catch((error) => {
+    console.error("[jobs] background skill analysis failed:", error instanceof Error ? error.message : String(error));
+  });
 
   const providerStatus: ProviderStatusEntry[] = providers.map((provider, i) => ({
     provider: provider.name,

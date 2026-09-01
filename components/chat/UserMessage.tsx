@@ -1,9 +1,11 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
 import type { ChatMessage } from "@/lib/ai/types";
 
-export function UserMessage({ message }: { message: ChatMessage }) {
+/** Memoized: a user message's props never change after creation, but ChatWindow's setState on every streamed token re-renders the whole MessageList — this skips re-executing every already-rendered message on each of those. */
+export const UserMessage = memo(function UserMessage({ message }: { message: ChatMessage }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -16,4 +18,4 @@ export function UserMessage({ message }: { message: ChatMessage }) {
       </div>
     </motion.div>
   );
-}
+});

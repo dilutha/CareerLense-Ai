@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
 import { Target, Waves } from "lucide-react";
 import type { ChecklistCard } from "@/lib/ai/types";
@@ -9,7 +10,7 @@ import type { ChecklistCard } from "@/lib/ai/types";
  * "what I'll check before searching"). A future phase will extend this to
  * render real job listings once job search is implemented.
  */
-export function JobPreviewMessage({ card }: { card: ChecklistCard }) {
+export const JobPreviewMessage = memo(function JobPreviewMessage({ card }: { card: ChecklistCard }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -42,4 +43,4 @@ export function JobPreviewMessage({ card }: { card: ChecklistCard }) {
       </div>
     </motion.div>
   );
-}
+});

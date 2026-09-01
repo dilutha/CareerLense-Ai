@@ -5,6 +5,7 @@ import type { JobResultSummary } from "@/lib/jobs/summary";
 import { AssistantMessage } from "./AssistantMessage";
 import { JobPreviewMessage } from "./JobPreviewMessage";
 import { JobResultsMessage } from "./JobResultsMessage";
+import { JobSearchActivity } from "./JobSearchActivity";
 import { ResumeAnalysisMessage } from "./ResumeAnalysisMessage";
 import { SystemMessage } from "./SystemMessage";
 import { ToolStatus } from "./ToolStatus";
@@ -28,6 +29,12 @@ export function MessageList({
           return <SystemMessage key={message.id} message={message} />;
         }
         if (message.role === "tool" && message.toolStatus) {
+          // Job search gets a richer, time-staged activity card (Part 5-13
+          // of the chat-activity UX work) — every other tool status keeps
+          // the existing compact pill, unchanged.
+          if (message.toolStatus === "searching_jobs") {
+            return <JobSearchActivity key={message.id} />;
+          }
           return (
             <ToolStatus key={message.id} toolStatus={message.toolStatus} />
           );

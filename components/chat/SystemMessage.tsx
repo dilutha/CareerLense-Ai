@@ -1,10 +1,11 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
 import { AlertCircle } from "lucide-react";
 import type { ChatMessage } from "@/lib/ai/types";
 
-export function SystemMessage({ message }: { message: ChatMessage }) {
+export const SystemMessage = memo(function SystemMessage({ message }: { message: ChatMessage }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -20,4 +21,4 @@ export function SystemMessage({ message }: { message: ChatMessage }) {
       <p className="whitespace-pre-line">{message.content}</p>
     </motion.div>
   );
-}
+});
